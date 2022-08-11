@@ -31,7 +31,7 @@ python check_bnb_install.py
 The configuration files (.yaml) for different system architectures can be found in the [conf]() directory. These are the relevant RNN-T conf files copied one-to-one from the NVIDIA NeMo repository (https://github.com/NVIDIA/NeMo/tree/main/examples/asr/conf). All models use 'byte-pair encoding' (BPE). In practice, BPE models give faster inference and better WERs than char-based RNN-T models.
 
 Provided within this repository are conf files for:
-* ContextNet: CNN-RNN-transducer architecture, large size (~144M), with Transducer loss and sub-word encoding ([paper](https://arxiv.org/abs/2005.03191))
+* ContextNet: CNN-RNN-transducer architecture, large size (~144M), with Transducer loss and sub-word encoding ([paper](https://arxiv.org/abs/2005.03191)).
 * Dummy ContextNet: 2-layer ContextNet model with reduced hidden-dimensions (~0.5MB). For prototyping and debugging.
 
 Once a conf has been selected, training can be started by running one of the sample scripts. The number of epochs is selected to give approximately the same number of training steps for all datasets (~400k). Evaluation is performed every 80k train steps. The model weights are saves every 200k train steps.

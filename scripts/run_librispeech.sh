@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
         --model_name_or_path="conf/contextnet_rnnt.yaml" \
-        --dataset_name="sanchit-gandhi/librispeech_asr_paths" \
+        --dataset_name="librispeech_asr" \
         --tokenizer_path="tokenizer" \
         --vocab_size="1024" \
         --num_train_epochs="12" \
