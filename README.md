@@ -1,5 +1,5 @@
 # Fine-Tuning RNN-T Models
-A [PyTorch](https://github.com/pytorch/pytorch) repository for fine-tuning NVIDIA RNN-T BPE models using Hugging Face Datasets and the Hugging Face Trainer.
+A [PyTorch](https://github.com/pytorch/pytorch) repository for fine-tuning NVIDIA RNN-T BPE models using Hugging Face Datasets and the Hugging Face Trainer. The sister repository for fine-tuning Seq2Seq and CTC ASR models in JAX/Flax can be found at: https://github.com/sanchit-gandhi/seq2seq-speech.
 
 The modelling files are based very heavily on those from [NVIDIA NeMo](https://github.com/NVIDIA/NeMo). This is a standalone repository to enable rapid prototyping and involvement with the community. The final modelling files and training script will be merged into [Transformers 🤗](https://github.com/huggingface/transformers) to be used with the rest of the open-source library. The final system weights will be made publicly available at [huggingface.co](huggingface.co) 🚀
 
@@ -14,6 +14,10 @@ Then, install all packages from [requirements.txt](requirements.txt):
 ```
 pip install -r requirements.txt
 ```
+Depending on your operating system (e.g. Linux), you might have to install `libsndfile` using your distribution’s package manager, for example:
+```
+sudo apt-get install libsndfile1
+```
 To check CUDA, NeMo and the bitsandbytes optimiser have been installed correctly, run:
 ```
 # check CUDA installation
@@ -25,6 +29,10 @@ python -c "from nemo.collections.asr.models import EncDecRNNTBPEModel; print('Ne
 # check bitsandbytes installation
 wget https://gist.githubusercontent.com/TimDettmers/1f5188c6ee6ed69d211b7fe4e381e713/raw/4d17c3d09ccdb57e9ab7eca0171f2ace6e4d2858/check_bnb_install.py
 python check_bnb_install.py
+```
+The only thing left to do is login to Weight and Biases for some pretty looking logs!
+```
+wandb login
 ```
 
 ## Example Usage

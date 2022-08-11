@@ -70,26 +70,9 @@ class ModelArguments:
     model_name_or_path: str = field(
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
     )
-    config_name: Optional[str] = field(
-        default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
-    )
-    tokenizer_name: Optional[str] = field(
-        default=None, metadata={"help": "Pretrained tokenizer name or path if not the same as model_name"}
-    )
-    feature_extractor_name: Optional[str] = field(
-        default=None, metadata={"help": "feature extractor name or path if not the same as model_name"}
-    )
     cache_dir: Optional[str] = field(
         default=None,
         metadata={"help": "Where to store the pretrained models downloaded from huggingface.co"},
-    )
-    use_fast_tokenizer: bool = field(
-        default=True,
-        metadata={"help": "Whether to use one of the fast tokenizer (backed by the tokenizers library) or not."},
-    )
-    model_revision: str = field(
-        default="main",
-        metadata={"help": "The specific model version to use (can be a branch name, tag name or commit id)."},
     )
     use_auth_token: bool = field(
         default=False,
@@ -445,7 +428,7 @@ def main():
     # 7. Preprocessing the datasets.
     # We need to read the audio files as arrays and tokenize the targets.
     max_input_length = int(data_args.max_duration_in_seconds * config.sample_rate)
-    min_input_length = int(data_args.min_duration_in_seconds * config.sample_rate)
+    min_input_length = min(int(data_args.min_duration_in_seconds * config.sample_rate), 1)
     max_target_length = data_args.max_target_length
     min_target_length = data_args.min_target_length
     audio_column_name = data_args.audio_column_name
@@ -453,6 +436,7 @@ def main():
     text_column_name = data_args.text_column_name
     do_lower_case = data_args.do_lower_case
     dataset_name = data_args.dataset_name
+
     # Define tokens to ignore/replace
     # TODO: clean-this up... It's currently a bit of a mess, sorry!
     gigaspeech_punctuation = {" <comma>": ",", " <period>": ".", " <questionmark>": "?", " <exclamationpoint>": "!"}
@@ -503,7 +487,7 @@ def main():
         batch["input_ids"] = sample["array"]
         batch["input_lengths"] = len(sample["array"])
 
-        # Process targets. Note: this is quite lengthy as we perform any necessary processing
+        # Process targets. Note: this is quite lengthy as we perform all the necessary processing
         # for each of the 8 datasets in the benchmark
         input_str = batch[text_column_name].lower() if do_lower_case else batch[text_column_name]
 
@@ -570,7 +554,7 @@ def main():
 
         # We can't currently tokenize the dataset... we need the pre-processed text data in order to
         # build our SPE tokenizer. Once we've defined our tokenizer, we can come back and
-        # tokenize the text. For now, returned the pre-processed text data
+        # tokenize the text. For now, just return the pre-processed text data
         batch[text_column_name] = input_str
         return batch
 
@@ -611,6 +595,7 @@ def main():
         return
 
     # Function to build a NeMo tokenizer manifest from a HF dataset
+    # TODO: with a bit of hacking around we can probably bypass this step entirely
     def build_manifest(ds, split, manifest_path):
         with open(manifest_path, 'w') as fout:
             for sample in tqdm(ds[split]):
@@ -641,9 +626,9 @@ def main():
 
     model = RNNTBPEModel(cfg=config)
 
+    # now that we have our model and tokenizer defined, we can tokenize the text data
     tokenizer = model.tokenizer.tokenizer.encode_as_ids
 
-    # now that we have our model and tokenizer defined, we can tokenize the text data
     def tokenize_transcripts(batch):
         batch["labels"] = tokenizer(batch[text_column_name])
         return batch
@@ -679,6 +664,7 @@ def main():
         wer = sum(wer_num) / sum(wer_denom)
         return {"wer": wer}
 
+    # Set wandb project ID before instantiating the Trainer
     os.environ["WANDB_PROJECT"] = data_args.wandb_project
 
     # Initialize Trainer
@@ -720,15 +706,17 @@ def main():
         trainer.save_metrics("train", metrics)
         trainer.save_state()
 
-    # Evaluation
+    # Final evaluation (beam search)
     results = {}
     if training_args.do_eval:
         logger.info("*** Running Final Evaluation (beam search) ***")
+        # set beam search decoding config
         beam_decoding_config = copy.deepcopy(config.decoding)
         beam_decoding_config.strategy = "beam"  # Options are `greedy`, `greedy_batch`, `beam`, `tsd` and `alsd`
         beam_decoding_config.beam.beam_size = 4  # Increase beam size for better scores, but it will take much longer for transcription !
 
         trainer.model.change_decoding_strategy(beam_decoding_config)
+
         metrics = trainer.evaluate()
         max_eval_samples = (
             data_args.max_eval_samples if data_args.max_eval_samples is not None else len(vectorized_datasets["eval"])
