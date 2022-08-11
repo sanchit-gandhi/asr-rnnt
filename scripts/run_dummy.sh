@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+CUDA_VISIBLE_DEVICES=1 python run_speech_recognition_rnnt.py \
+        --model_name_or_path="conf/contextnet_rnnt_dummy.yaml" \
+        --dataset_name="hf-internal-testing/librispeech_asr_dummy" \
+        --tokenizer_path="tokenizer" \
+        --vocab_size="1024" \
+        --num_train_epochs="3" \
+        --evaluation_strategy="epoch" \
+        --dataset_config_name="clean" \
+        --train_split_name="validation" \
+        --eval_split_name="validation" \
+        --test_split_name="validation" \
+        --text_column_name="text" \
+        --output_dir="./" \
+        --run_name="rnnt-ls-dummy" \
+        --wandb_project="rnnt-dummy" \
+        --per_device_train_batch_size="8" \
+        --per_device_eval_batch_size="4" \
+        --logging_steps="25" \
+        --learning_rate="1e-4" \
+        --warmup_steps="5" \
+        --report_to="wandb" \
+        --push_to_hub="False" \
+        --preprocessing_num_workers="4" \
+        --group_by_length="True" \
+        --overwrite_output_dir \
+        --fp16 \
+        --do_lower_case \
+        --do_eval \
+        --do_train
+        # --do_predict

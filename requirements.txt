@@ -1,0 +1,7 @@
+pip install transformers
+pip install datasets
+pip install jiwer
+pip install wandb
+pip install soundfile
+pip install librosa
+pip install bitsandbytes
