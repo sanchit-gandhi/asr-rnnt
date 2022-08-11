@@ -40,7 +40,7 @@ The configuration files (.yaml) for different system architectures can be found 
 
 Provided within this repository are conf files for:
 * ContextNet: CNN-RNN-transducer architecture, large size (~144M), with Transducer loss and sub-word encoding ([paper](https://arxiv.org/abs/2005.03191)).
-* Dummy ContextNet: 2-layer ContextNet model with reduced hidden-dimensions (~0.5MB). For prototyping and debugging.
+* Dummy ContextNet: 2-layer ContextNet model with reduced hidden-dimensions (~0.5M). For prototyping and debugging.
 
 Once a conf has been selected, training can be started by running one of the sample scripts. The number of epochs is selected to give approximately the same number of training steps for all datasets (~400k). Evaluation is performed every 80k train steps. The model weights are saves every 200k train steps.
 * [run_librispeech.sh](scripts/run_librispeech.sh): Train for 12 epochs on LibriSpeech ASR 960h.
@@ -51,7 +51,7 @@ Once a conf has been selected, training can be started by running one of the sam
 
 RNN-T models are extremely memory intensive due to the cost of computing the Joint module. To achieve a reasonable batch-size during training with the full-sized models (min. 8), we employ the following memory saving strategies:
 * Train in fp16 (half) precision: the fprop/bprop activations/gradients are automatically downcast/upcast through the PyTorch [Automatic Mixed Precision (AMP)](https://pytorch.org/docs/stable/amp.html) package. Set by passing the argument `fp16` to the HF Trainer.
-* 8bit optimiser: we use the 8bit implementation of AdamW from [bitsandbytes](https://github.com/facebookresearch/bitsandbytes#using-the-8-bit-optimizers)
+* 8bit optimiser: we use the 8bit implementation of AdamW from [bitsandbytes](https://github.com/facebookresearch/bitsandbytes#using-the-8-bit-optimizers).
 * Filter audio samples longer than 20s: memory usage increases exponentially with sequence length.
 
 To improve memory usage further, one could employ gradient checkpointing, or use the "fused batch step" for the Joint module (provided by NeMo in the RNN-T model)[^2]. Both of these methods improve memory usage at the expense of compute speed.
