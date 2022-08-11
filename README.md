@@ -3,12 +3,12 @@ A [PyTorch](https://github.com/pytorch/pytorch) repository for fine-tuning NVIDI
 
 The modelling files are based very heavily on those from [NVIDIA NeMo](https://github.com/NVIDIA/NeMo). This is a standalone repository to enable rapid prototyping and involvement with the community. The final modelling files and training script will be merged into [Transformers 🤗](https://github.com/huggingface/transformers) to be used with the rest of the open-source library. The final system weights will be made publicly available at [huggingface.co](huggingface.co) 🚀
 
-![Transducer Model](transducer-model.png)
+![Transducer Model](transducer-model.png?style=centerme)
 
-**Figure 1:** RNN-T Transducer Model[^1].
+**Figure 1:** RNN-T Transducer Model[^1]
 
 ## Set-Up
-First, install NVIDIA NeMo 'from source' following the instructions at: https://github.com/NVIDIA/NeMo#installation
+First, install NVIDIA NeMo 'from source' following the instructions at: https://github.com/NVIDIA/NeMo#installation.
 
 Then, install all packages from [requirements.txt](requirements.txt):
 ```
@@ -41,8 +41,8 @@ Once a conf has been selected, training can be started by running one of the sam
 * [run_switchboard.sh](scripts/run_switchboard.sh): Train for 14 epochs on LDC SwitchBoard.
 * [run_dummy.sh](scripts/run_dummy.sh): Train on a dummy dataset using a dummy model (for prototyping and debugging)
 
-RNN-T models are extremely memory intensive due to the cost of computing the Joint module. To achieve a reasonable batch-size during training (min 8), we employ the following memory saving strategies:
-* Train in fp16 (half) precision: the fprop/bprop activations/gradients are automatically cast through the PyTorch [Automatic Mixed Precision (AMP)](https://pytorch.org/docs/stable/amp.html) package. Set by passing the argument `fp16` to the HF Trainer.
+RNN-T models are extremely memory intensive due to the cost of computing the Joint module. To achieve a reasonable batch-size during training with the full-sized models (min. 8), we employ the following memory saving strategies:
+* Train in fp16 (half) precision: the fprop/bprop activations/gradients are automatically downcast/upcast through the PyTorch [Automatic Mixed Precision (AMP)](https://pytorch.org/docs/stable/amp.html) package. Set by passing the argument `fp16` to the HF Trainer.
 * 8bit optimiser: we use the 8bit implementation of AdamW from [bitsandbytes](https://github.com/facebookresearch/bitsandbytes#using-the-8-bit-optimizers)
 * Filter audio samples longer than 20s: memory usage increases exponentially with sequence length.
 
