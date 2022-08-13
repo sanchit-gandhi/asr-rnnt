@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
-        --model_name_or_path="conf/contextnet_rnnt.yaml" \
+        --model_name_or_path="stt_en_conformer_transducer_xlarge" \
         --dataset_name="LIUM/tedlium" \
         --tokenizer_path="tokenizer" \
         --vocab_size="1024" \

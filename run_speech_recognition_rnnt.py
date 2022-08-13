@@ -67,12 +67,16 @@ class ModelArguments:
     Arguments pertaining to which model/config/tokenizer we are going to fine-tune from.
     """
 
-    model_name_or_path: str = field(
-        metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
+    config_path: str = field(
+        metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models."},
+    )
+    model_name_or_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to pretrained model or model identifier from NVIDIA NeMo NGC."}
     )
     cache_dir: Optional[str] = field(
         default=None,
-        metadata={"help": "Where to store the pretrained models downloaded from huggingface.co"},
+        metadata={"help": "Where to store the pretrained models downloaded from huggingface.co or NVIDIA NeMo NGC."},
     )
     use_auth_token: bool = field(
         default=False,
@@ -362,7 +366,7 @@ def main():
     set_seed(training_args.seed)
 
     # load the model config (discarding optimiser and trainer attributes)
-    config = OmegaConf.load(model_args.model_name_or_path).model
+    config = OmegaConf.load(model_args.config_path).model
 
     # 4. Load dataset
     raw_datasets = DatasetDict()
@@ -625,6 +629,24 @@ def main():
         config.tokenizer.type = tokenizer_type_cfg
 
     model = RNNTBPEModel(cfg=config)
+
+    if model_args.model_name_or_path is not None:
+        # load pre-trained model weights
+        pretrained_model = RNNTBPEModel.from_pretrained(model_args.model_name_or_path, map_location="cpu")
+
+        if len(pretrained_model.cfg.labels) != len(model.cfg.labels):
+            logger.warning(f"Vocabulary size of the tokenizer does not match that of the pre-trained checkpoint."
+                           f"Got {len(model.cfg.labels)} for the tokenizer, and {len(pretrained_model.cfg.labels)}"
+                           f"for the pre-trained checkpoint. Expect a mis-match in weights for the decoder and joint"
+                           f"modules... It is recommended to build your tokenizer to the same vocab size as that of the"
+                           f"pre-trained checkpoint ({len(pretrained_model.cfg.labels)}).")
+
+        # load encoder-decoder-joint in its entirety; in practice, boosts WER by 1-2 absolute %
+        missing_keys, unexpected_keys = model.load_state_dict(pretrained_model.state_dict(), strict=False)
+        if missing_keys:
+            logger.warning(f"The following keys are missing when loading the model weights: {missing_keys}")
+        if unexpected_keys:
+            logger.warning(f"The following keys are unexpected when loading the model weights: {unexpected_keys}")
 
     # now that we have our model and tokenizer defined, we can tokenize the text data
     tokenizer = model.tokenizer.tokenizer.encode_as_ids
