@@ -1,1 +1,1 @@
-from modeling_rnnt import RNNTBPEModel
+from .modeling_rnnt import RNNTBPEModel
