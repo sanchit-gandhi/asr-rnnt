@@ -83,8 +83,8 @@ model:
     _target_: nemo.collections.asr.modules.ConformerEncoder
     feat_in: ${model.preprocessor.features}
     feat_out: -1 # you may set it if you need different output size other than the default d_model
-    n_layers: 17
-    d_model: 512
+    n_layers: 24
+    d_model: 1024
 
     # Sub-sampling params
     subsampling: striding # vggnet, striding, stacking or stacking_norm, dw_striding
@@ -106,7 +106,7 @@ model:
     pos_emb_max_len: 5000
 
     # Convolution module's params
-    conv_kernel_size: 31
+    conv_kernel_size: 5
     conv_norm_type: 'batch_norm' # batch_norm or layer_norm or groupnormN (N specifies the number of groups)
     # conv_context_size can be"causal" or a list of two integers while conv_context_size[0]+conv_context_size[1]+1==conv_kernel_size
     # null means [(kernel_size-1)//2, (kernel_size-1)//2], and 'causal' means [(kernel_size-1), 0]
@@ -125,9 +125,9 @@ model:
 
     prednet:
       pred_hidden: ${model.model_defaults.pred_hidden}
-      pred_rnn_layers: 1
+      pred_rnn_layers: 2
       t_max: null
-      dropout: 0.2
+      dropout: 0.1
 
   joint:
     _target_: nemo.collections.asr.modules.RNNTJoint
@@ -148,7 +148,7 @@ model:
     jointnet:
       joint_hidden: ${model.model_defaults.joint_hidden}
       activation: "relu"
-      dropout: 0.2
+      dropout: 0.1
 
   decoding:
     strategy: "greedy_batch" # can be greedy, greedy_batch, beam, tsd, alsd.
