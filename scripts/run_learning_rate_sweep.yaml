@@ -1,0 +1,56 @@
+command:
+  - python3
+  - ${program}
+  - --use_auth_token
+  - --do_eval
+  - --group_by_length
+  - --overwrite_output_dir
+  - --fp16
+  - --do_lower_case
+  - --do_eval
+  - --do_train
+  - --fuse_loss_wer
+  - ${args}
+method: grid
+metric:
+  goal: minimize
+  name: train/loss
+parameters:
+  config_path:
+    value: conf/conformer_transducer_bpe_xlarge.yaml
+  dataset_config_name:
+    value: clean
+  dataset_name:
+    value: librispeech_asr
+  max_steps:
+    value: 50
+  model_name_or_path:
+    value: stt_en_conformer_transducer_xlarge
+  output_dir:
+    value: ./sweep_output_dir
+  per_device_train_batch_size:
+    value: 8
+  fused_batch_size:
+    value: 8
+  per_device_eval_batch_size:
+    value: 4
+  preprocessing_num_workers:
+    value: 1
+  train_split_name:
+    value: train.100
+  eval_split_name:
+    value: validation
+  tokenizer_path:
+    value: tokenizer
+  vocab_size:
+    value: 1024
+  learning_rate:
+    values:
+      - 3e-4
+      - 1e-4
+      - 3e-5
+      - 1e-5
+  num_train_epochs:
+    value: 3
+program: run_speech_recognition_rnnt.py
+project: rnnt-debug
