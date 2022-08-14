@@ -34,6 +34,8 @@ parameters:
     value: 8
   per_device_eval_batch_size:
     value: 4
+  gradient_accumulation_steps:
+    value: 2  #TBD. + grad checkpointing?
   preprocessing_num_workers:
     value: 1
   train_split_name:
