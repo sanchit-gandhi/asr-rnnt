@@ -23,7 +23,7 @@ CUDA_VISIBLE_DEVICES=1 python run_speech_recognition_rnnt.py \
         --report_to="wandb" \
         --push_to_hub="False" \
         --preprocessing_num_workers="4" \
-        --group_by_length="True" \
+        --group_by_length \
         --overwrite_output_dir \
         --fp16 \
         --do_lower_case \

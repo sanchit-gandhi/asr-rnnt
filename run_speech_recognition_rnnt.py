@@ -115,6 +115,22 @@ class ModelArguments:
                     "Used only if `tokenizer_type` == `spe`"
         },
     )
+    fuse_loss_wer: bool = field(
+        default=True,
+        metadata={
+            "help": "Whether to fuse the computation of prediction net + joint net + loss + WER calculation to be run "
+                    "on sub-batches of size `fused_batch_size`"
+        }
+    )
+    fused_batch_size: int = field(
+        default=8,
+        metadata={
+            "help": "`fused_batch_size` is the actual batch size of the prediction net, joint net and transducer loss."
+                    "Using small values here will preserve a lot of memory during training, but will make training slower as well."
+                    "An optimal ratio of fused_batch_size : per_device_train_batch_size is 1:1."
+                    "However, to preserve memory, this ratio can be 1:8 or even 1:16."
+        }
+    )
 
 
 @dataclass
@@ -677,6 +693,11 @@ def main():
         eps=training_args.adam_epsilon,
     )
     optimizers = (optimizer, None)
+
+    # possibly fused-computation of prediction net + joint net + loss + WER calculation
+    config.joint.fuse_loss_wer = model_args.fuse_loss_wer
+    if model_args.fuse_loss_wer:
+        config.joint.fused_batch_size = model_args.fused_batch_size
 
     def compute_metrics(pred):
         # Tuple of WERs returned by the model during eval: (wer, wer_num, wer_denom)

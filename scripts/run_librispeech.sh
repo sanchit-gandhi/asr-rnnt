@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
-        --config_path="conformer_transducer_bpe_xlarge.yaml" \
+        --config_path="conf/conformer_transducer_bpe_xlarge.yaml" \
         --model_name_or_path="stt_en_conformer_transducer_xlarge" \
         --dataset_name="librispeech_asr" \
         --tokenizer_path="tokenizer" \
@@ -26,6 +26,9 @@ CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
         --report_to="wandb" \
         --push_to_hub="False" \
         --preprocessing_num_workers="4" \
+        --fused_batch_size="8" \
+        --fuse_loss_wer \
+        --group_by_length \
         --overwrite_output_dir \
         --fp16 \
         --do_lower_case \

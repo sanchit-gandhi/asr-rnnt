@@ -40,9 +40,14 @@ The configuration files (.yaml) for different system architectures can be found 
 
 Provided within this repository are conf files for:
 * ContextNet: CNN-RNN-transducer architecture, large size (~144M), with Transducer loss and sub-word encoding ([paper](https://arxiv.org/abs/2005.03191)).
-* Dummy ContextNet: 2-layer ContextNet model with reduced hidden-dimensions (~0.5M). For prototyping and debugging.
+* Dummy ContextNet: 2-layer ContextNet model with reduced hidden-dimensions (~0.5M). For prototyping and debugging. 
++ Conformer RNN-T: large and x-large
 
-Once a conf has been selected, training can be started by running one of the sample scripts. The number of epochs is selected to give approximately the same number of training steps for all datasets (~400k). Evaluation is performed every 80k train steps. The model weights are saves every 200k train steps.
+Model weights can be initialised by specifying a pre-trained checkpoint from the NVIDIA NeMo NGC catalogue: https://docs.nvidia.com/deeplearning/nemo/user-guide/docs/en/stable/asr/results.html#english
+
+Ensure the pre-trained config matches the chosen config in the conf file to load the entirety of the model weights.
+
+Once a conf (and possibly pre-trained checkpoint) have been selected, training can be started by running one of the sample scripts. The number of epochs is selected to give approximately the same number of training steps for all datasets (~400k). Evaluation is performed every 80k train steps. The model weights are saves every 200k train steps.
 * [run_librispeech.sh](scripts/run_librispeech.sh): Train for 12 epochs on LibriSpeech ASR 960h.
 * [run_common_voice_9.sh](scripts/run_common_voice_9.sh): Train for 4 epochs on Common Voice 9.
 * [run_tedlium.sh](scripts/run_tedlium.sh): Train for 24 epochs on TED-LIUM (release3).

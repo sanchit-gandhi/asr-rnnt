@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 CUDA_VISIBLE_DEVICES=1 python run_speech_recognition_rnnt.py \
-        --config_path="conformer_transducer_bpe_xlarge.yaml" \
+        --config_path="conf/conformer_transducer_bpe_xlarge.yaml" \
         --model_name_or_path="stt_en_conformer_transducer_xlarge" \
         --dataset_name="mozilla-foundation/common_voice_9_0" \
         --tokenizer_path="tokenizer" \
@@ -26,9 +26,12 @@ CUDA_VISIBLE_DEVICES=1 python run_speech_recognition_rnnt.py \
         --report_to="wandb" \
         --push_to_hub="False" \
         --preprocessing_num_workers="4" \
+        --fused_batch_size="8" \
+        --fuse_loss_wer \
         --use_auth_token \
         --overwrite_output_dir \
         --fp16 \
+        --group_by_length \
         --do_lower_case \
         --do_eval \
         --do_train
