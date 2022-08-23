@@ -27,7 +27,6 @@ python -c "import torch; print('CUDA:', torch.cuda.is_available())"
 python -c "from nemo.collections.asr.models import EncDecRNNTBPEModel; print('NeMo: installed successfully')"
 
 # check bitsandbytes installation
-wget https://gist.githubusercontent.com/TimDettmers/1f5188c6ee6ed69d211b7fe4e381e713/raw/4d17c3d09ccdb57e9ab7eca0171f2ace6e4d2858/check_bnb_install.py
 python check_bnb_install.py
 ```
 The only thing left to do is login to Weight and Biases for some pretty looking logs!
