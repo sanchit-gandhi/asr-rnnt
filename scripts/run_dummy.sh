@@ -1,33 +1,34 @@
 #!/usr/bin/env bash
-CUDA_VISIBLE_DEVICES=1 python run_speech_recognition_rnnt.py \
+CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
         --config_path="conf/conformer_transducer_bpe_dummy.yaml" \
-        --model_name_or_path="stt_en_conformer_transducer_small" \
         --dataset_name="hf-internal-testing/librispeech_asr_dummy" \
         --tokenizer_path="tokenizer" \
         --vocab_size="1024" \
-        --num_train_epochs="3" \
+        --num_train_epochs="1" \
         --evaluation_strategy="epoch" \
         --dataset_config_name="clean" \
         --train_split_name="validation" \
         --eval_split_name="validation" \
-        --test_split_name="validation" \
+        --test_split_name="validation[:90%]" \
         --text_column_name="text" \
         --output_dir="./" \
         --run_name="rnnt-ls-dummy" \
         --wandb_project="rnnt-dummy" \
         --per_device_train_batch_size="8" \
         --per_device_eval_batch_size="4" \
-        --gradient_accumulation_steps="2" \
         --logging_steps="25" \
         --learning_rate="1e-4" \
         --warmup_steps="5" \
         --report_to="wandb" \
         --push_to_hub="False" \
         --preprocessing_num_workers="4" \
+        --max_train_samples="8" \
+        --max_eval_samples="8" \
+        --max_predict_samples="8" \
+        --final_num_beams="1" \
         --group_by_length \
         --overwrite_output_dir \
         --fp16 \
         --do_lower_case \
-        --do_eval \
-        --do_train
-        # --do_predict
+        --do_train \
+        --do_predict

@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-CUDA_VISIBLE_DEVICES=1 python run_speech_recognition_rnnt.py \
+CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
         --config_path="conf/conformer_transducer_bpe_xlarge.yaml" \
         --model_name_or_path="stt_en_conformer_transducer_xlarge" \
-        --dataset_name="ldc/switchboard" \
+        --dataset_name="google/xtreme_s" \
         --tokenizer_path="tokenizer" \
         --vocab_size="1024" \
-        --num_train_epochs="14" \
+        --num_train_epochs="12" \
         --evaluation_strategy="epoch" \
-        --dataset_config_name="switchboard" \
+        --dataset_config_name="voxpopuli.en" \
         --train_split_name="train" \
         --eval_split_name="validation" \
         --test_split_name="test" \
-        --text_column_name="text" \
+        --text_column_name="transcription" \
         --output_dir="./" \
-        --run_name="rnnt-switchboard-baseline" \
+        --run_name="rnnt-voxpopuli-baseline" \
         --wandb_project="rnnt" \
         --per_device_train_batch_size="8" \
         --per_device_eval_batch_size="4" \
