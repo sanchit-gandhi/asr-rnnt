@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
+CUDA_VISIBLE_DEVICES=1 python run_speech_recognition_rnnt.py \
         --config_path="conf/conformer_transducer_bpe_xlarge.yaml" \
         --model_name_or_path="stt_en_conformer_transducer_xlarge" \
         --dataset_name="LIUM/tedlium" \
@@ -17,7 +17,6 @@ CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
         --wandb_project="rnnt" \
         --per_device_train_batch_size="8" \
         --per_device_eval_batch_size="4" \
-        --gradient_accumulation_steps="2" \
         --logging_steps="25" \
         --learning_rate="1e-4" \
         --warmup_steps="2000" \
@@ -25,7 +24,6 @@ CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
         --evaluation_strategy="steps" \
         --eval_steps="80000" \
         --report_to="wandb" \
-        --push_to_hub="False" \
         --preprocessing_num_workers="4" \
         --fused_batch_size="8" \
         --fuse_loss_wer \
@@ -33,6 +31,8 @@ CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
         --overwrite_output_dir \
         --fp16 \
         --do_lower_case \
+        --do_train \
         --do_eval \
-        --do_train
-        # --do_predict
+        --do_predict \
+        --push_to_hub \
+        --use_auth_token

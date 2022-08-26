@@ -16,6 +16,13 @@
           </advancedOptions>
         </fileTransfer>
       </webServer>
+      <webServer id="a038bc08-bebc-469e-983c-81c811e2ee5f" name="sanchit-a100">
+        <fileTransfer accessType="SFTP" host="35.204.232.202" port="22" sshConfigId="d8bb1721-7310-456f-9452-ecbd2dc2615f" sshConfig="sanchit-a100" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
     </option>
     <groups>
       <group>
@@ -23,6 +30,7 @@
         <servers>
           <name value="patrick-a100" />
           <name value="sanchit-v100" />
+          <name value="sanchit-a100" />
         </servers>
       </group>
     </groups>

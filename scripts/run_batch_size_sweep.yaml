@@ -14,7 +14,7 @@ command:
 method: grid
 metric:
   goal: minimize
-  name: train/loss
+  name: train/train_loss
 parameters:
   config_path:
     value: conf/conformer_transducer_bpe_xlarge.yaml
@@ -28,27 +28,34 @@ parameters:
     value: stt_en_conformer_transducer_xlarge
   output_dir:
     value: ./sweep_output_dir
+  gradient_accumulation_steps:
+    values:
+      - 1
+      - 2
   per_device_train_batch_size:
     values:
-      - 2
-      - 4
       - 8
       - 16
   fused_batch_size:
     values:
       - 4
       - 8
+      - 16
   per_device_eval_batch_size:
     value: 4
   preprocessing_num_workers:
     value: 1
   train_split_name:
-    value: train.100[:1100]
+    value: train.100[:500]
   eval_split_name:
     value: validation[:100]
   tokenizer_path:
     value: tokenizer
   vocab_size:
     value: 1024
+  wandb_project:
+    value: rnnt-debug
+  logging_steps:
+    value: 5
 program: run_speech_recognition_rnnt.py
 project: rnnt-debug

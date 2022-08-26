@@ -2,11 +2,14 @@
 <project version="4">
   <component name="SshConfigs">
     <configs>
-      <sshConfig host="34.121.156.54" id="fbafc652-d221-4e25-91f8-de5edf66ddb8" keyPath="$PROJECT_DIR$/../.ssh/google_compute_engine" port="22" customName="sanchit-v100" nameFormat="CUSTOM" username="sanchit_huggingface_co" useOpenSSHConfig="true">
+      <sshConfig host="34.121.156.54" id="fbafc652-d221-4e25-91f8-de5edf66ddb8" keyPath="$USER_HOME$/.ssh/google_compute_engine" port="22" customName="sanchit-v100" nameFormat="CUSTOM" username="sanchit_huggingface_co" useOpenSSHConfig="true">
         <option name="customName" value="sanchit-v100" />
       </sshConfig>
-      <sshConfig host="34.67.69.143" id="cf19732b-35f9-421a-bcde-636110e61e0f" keyPath="$PROJECT_DIR$/../.ssh/google_compute_engine" port="22" customName="patrick-a100" nameFormat="CUSTOM" username="sanchit_huggingface_co" useOpenSSHConfig="true">
+      <sshConfig host="34.67.69.143" id="cf19732b-35f9-421a-bcde-636110e61e0f" keyPath="$USER_HOME$/.ssh/google_compute_engine" port="22" customName="patrick-a100" nameFormat="CUSTOM" username="sanchit_huggingface_co" useOpenSSHConfig="true">
         <option name="customName" value="patrick-a100" />
+      </sshConfig>
+      <sshConfig host="35.204.232.202" id="d8bb1721-7310-456f-9452-ecbd2dc2615f" keyPath="$USER_HOME$/.ssh/google_compute_engine" port="22" customName="sanchit-a100" nameFormat="CUSTOM" username="sanchit_huggingface_co" useOpenSSHConfig="true">
+        <option name="customName" value="sanchit-a100" />
       </sshConfig>
     </configs>
   </component>

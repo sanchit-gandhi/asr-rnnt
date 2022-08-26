@@ -30,6 +30,7 @@ from typing import Optional, Dict, Union, List
 
 import numpy as np
 import torch
+import torch.nn as nn
 
 from omegaconf import OmegaConf
 from models import RNNTBPEModel
@@ -131,6 +132,24 @@ class ModelArguments:
                     "However, to preserve memory, this ratio can be 1:8 or even 1:16."
         }
     )
+    final_decoding_strategy: str = field(
+        default="beam",
+        metadata={
+            "help": "Decoding strategy for final eval/prediction steps. One of: [`greedy`, `greedy_batch`, `beam`, "
+                    "`tsd`, `alsd`]."
+        }
+    )
+    final_num_beams: int = field(
+        default=4,
+        metadata={
+            "help": "Number of beams for final eval/prediction steps. Increase beam size for better scores, "
+                    "but it will take much longer for transcription!"
+        }
+    )
+    freeze_encoder: bool = field(
+        default=False,
+        metadata={"help": "Freeze the acoustic encoder of the model. Recommend when fine-tuning on small datasets."}
+    )
 
 
 @dataclass
@@ -173,7 +192,7 @@ class DataTrainingArguments:
                     "value if set."
         },
     )
-    max_test_samples: Optional[int] = field(
+    max_predict_samples: Optional[int] = field(
         default=None,
         metadata={
             "help": "For debugging purposes or quicker training, truncate the number of test examples to this "
@@ -263,9 +282,6 @@ def build_tokenizer(model_args, data_args, manifests):
     logger.info("Building tokenizer...")
     if not os.path.exists(data_root):
         os.makedirs(data_root)
-    else:
-        os.system(f"rm -rf {data_root}")
-        os.makedirs(data_root)
 
     text_corpus_path = nemo_build_document_from_manifests(data_root, joint_manifests)
 
@@ -315,7 +331,7 @@ def NeMoDataCollator(features: List[Dict[str, Union[List[int], torch.Tensor]]]) 
     input_lengths = [feature["input_lengths"] for feature in features]
     max_input_len = max(input_lengths)
     input_ids = [np.pad(input_val, (0, max_input_len - input_len), 'constant') for input_val, input_len in
-                    zip(input_ids, input_lengths)]
+                 zip(input_ids, input_lengths)]
 
     # next, pad the target labels to max_len
     label_lengths = [len(lab) for lab in labels]
@@ -331,6 +347,7 @@ def NeMoDataCollator(features: List[Dict[str, Union[List[int], torch.Tensor]]]) 
     batch["input_ids"] = torch.tensor(np.array(input_ids, dtype=np.float32), requires_grad=False)
 
     return batch
+
 
 def main():
     # See all possible arguments in src/transformers/training_args.py
@@ -458,7 +475,7 @@ def main():
     dataset_name = data_args.dataset_name
 
     # Define tokens to ignore/replace
-    # TODO: clean-this up... It's currently a bit of a mess, sorry!
+    tedlium_contractions = [" 's", " 't", " 're", " 've", " 'm", " 'll", " 'd", " 'clock", " 'all"]
     gigaspeech_punctuation = {" <comma>": ",", " <period>": ".", " <questionmark>": "?", " <exclamationpoint>": "!"}
     gigaspeech_disfluencies = ["<other>", "<sil>"]
     swb_disfluencies = ["[noise]", "[laughter]", "[silence]", "<a_aside>", "<b_aside>", "<e_aside>", "[laughter-",
@@ -475,9 +492,9 @@ def main():
     if training_args.do_eval and data_args.max_eval_samples is not None:
         raw_datasets["eval"] = raw_datasets["eval"].select(range(data_args.max_eval_samples))
 
-    if training_args.do_predict and data_args.max_test_samples is not None:
+    if training_args.do_predict and data_args.max_predict_samples is not None:
         for split in test_split:
-            raw_datasets[split] = raw_datasets[split].select(range(data_args.max_eval_samples))
+            raw_datasets[split] = raw_datasets[split].select(range(data_args.max_predict_samples))
 
     # filter data where the targets are ignored in scoring
     def is_target_labels(input_str):
@@ -491,7 +508,7 @@ def main():
     )
 
     def prepare_dataset(batch):
-        # process audio
+        # pre-process audio
         try:
             sample = batch[audio_column_name]
         except ValueError:
@@ -499,74 +516,72 @@ def main():
             # a soundfile ValueError. For now, we'll manually set these arrays to a zero array.
             # They will be filtered in the subsequent filtering stage and so are
             # explicitly ignored during training.
-            # TODO: clean-up E22 dataset to remove these samples
-            sample = {"array": np.array([0.]), "sampling_rate": config.sample_rate}
+            sample = {"array": np.array([0.]), "sampling_rate": config.sampling_rate}
 
         # NeMo RNNT model performs the audio preprocessing in the `.forward()` call
         # => we only need to supply it with the raw audio values
         batch["input_ids"] = sample["array"]
         batch["input_lengths"] = len(sample["array"])
 
-        # Process targets. Note: this is quite lengthy as we perform all the necessary processing
-        # for each of the 8 datasets in the benchmark
+        # 'Error correction' of targets
         input_str = batch[text_column_name].lower() if do_lower_case else batch[text_column_name]
 
+        # LibriSpeech ASR
+        if dataset_name == "librispeech_asr":
+            pass  # no error correction necessary
+
+        # VoxPopuli
         if dataset_name == "google/xtreme_s":
-            batch[text_column_name] = input_str
-            return batch
+            pass  # no error correction necessary
 
         # Common Voice 9
-        if input_str.startswith('"') and input_str.endswith('"'):
-            # we can remove trailing quotation marks as they do not affect the transcription
-            input_str = input_str[1:-1]
-        # normalize quotation marks
-        input_str = re.sub(r'["“”]', '"', input_str)
-        # normalize apostrophes
-        input_str = re.sub(r"[’']", "'", input_str)
-        # normalize hyphens
-        input_str = re.sub(r"[—–]", "-", input_str)
-        # replace double quotation marks with single
-        input_str = input_str.replace('""', '"')
-        if dataset_name == "mozilla-foundation/common_voice_9_0" and len(input_str):
-            # for CV9, we'll normalize the text to always finish with punctuation
-            if input_str[-1] not in [".", "?", "!"]:
-                input_str = input_str + "."
+        if dataset_name == "mozilla-foundation/common_voice_9_0":
+            if input_str.startswith('"') and input_str.endswith('"'):
+                # we can remove trailing quotation marks as they do not affect the transcription
+                input_str = input_str[1:-1]
+            # replace double quotation marks with single
+            input_str = input_str.replace('""', '"')
 
-        # TEDLIUM-3
-        # delete the <unk> token from the text and replace spaced apostrophes with un-spaced
-        input_str = input_str.replace("<unk>", "").replace(" '", "'")
+        # TED-LIUM (Release 3)
+        if dataset_name == "LIUM/tedlium":
+            # delete the <unk> token from the text
+            input_str = input_str.replace("<unk>", "")
+            # replace spaced apostrophes with un-spaced (it 's -> it's)
+            for contraction in tedlium_contractions:
+                input_str = input_str.replace(contraction, contraction[1:])
 
         # GigaSpeech
-        for disfluency in gigaspeech_disfluencies:
-            input_str = input_str.replace(disfluency, "")
-        # convert spelled out punctuation to symbolic form
-        for punctuation, replacement in gigaspeech_punctuation.items():
-            input_str = input_str.replace(punctuation, replacement)
-        if dataset_name == "speechcolab/gigaspeech" and len(input_str):
-            # for GS, we'll normalize the text to always finish with punctuation
-            if input_str[-1] not in [".", "?", "!"]:
-                input_str = input_str + "."
+        if dataset_name == "speechcolab/gigaspeech":
+            for disfluency in gigaspeech_disfluencies:
+                input_str = input_str.replace(disfluency, "")
+            # convert spelled out punctuation to symbolic form
+            for punctuation, replacement in gigaspeech_punctuation.items():
+                input_str = input_str.replace(punctuation, replacement)
 
-        # SWB
-        for disfluency in swb_disfluencies:
-            input_str = input_str.replace(disfluency, "")
-        # remove parenthesised text (test data only)
-        input_str = re.sub("[\(].*?[\)]", "", input_str)
-        for punctuation in swb_punctuations:
-            input_str = input_str.replace(punctuation, "")
-        # replace anomalous words with their correct transcriptions
-        split_str = input_str.split("/")
-        if len(split_str) > 1:
-            input_str = " ".join(
-                [" ".join([" ".join(i.split(" ")[:-1]) for i in split_str])] + [split_str[-1].split(" ")[-1]])
+        # SWB: hide the path to the private HF dataset
+        if "switchboard" in dataset_name:
+            for disfluency in swb_disfluencies:
+                input_str = input_str.replace(disfluency, "")
+            # remove parenthesised text (test data only)
+            input_str = re.sub("[\(].*?[\)]", "", input_str)
+            for punctuation in swb_punctuations:
+                input_str = input_str.replace(punctuation, "")
+            # replace anomalous words with their correct transcriptions
+            split_str = input_str.split("/")
+            if len(split_str) > 1:
+                input_str = " ".join(
+                    [" ".join([" ".join(i.split(" ")[:-1]) for i in split_str])] + [split_str[-1].split(" ")[-1]])
 
-        # Earnings 22
-        for disfluency in earnings_disfluencies:
-            input_str = input_str.replace(disfluency, "")
-        # replace mal-formatted ellipsis
-        input_str = input_str.replace("…", ".")
+        # Earnings 22: still figuring out best segmenting method. Thus, dataset name subject to change
+        if "earnings22" in dataset_name:
+            for disfluency in earnings_disfluencies:
+                input_str = input_str.replace(disfluency, "")
 
-        # JIWER compliance
+        # SPGISpeech
+        if dataset_name == "kensho/spgispeech":
+            pass  # no error correction necessary
+
+        # JIWER compliance (for WER/CER calc.)
         # remove multiple spaces
         input_str = re.sub(r"\s\s+", " ", input_str)
         # strip trailing spaces
@@ -584,22 +599,22 @@ def main():
         desc="preprocess train dataset",
     )
 
-    # filter data with inputs shorter than min_input_length or longer than max_input_length
+    # filter training data with inputs shorter than min_input_length or longer than max_input_length
     def is_audio_in_length_range(length):
         return length > min_input_length and length < max_input_length
 
-    vectorized_datasets = vectorized_datasets.filter(
-        is_audio_in_length_range,
-        num_proc=num_workers,
-        input_columns=["input_lengths"],
-    )
+    if training_args.do_train:
+        vectorized_datasets["train"] = vectorized_datasets["train"].filter(
+            is_audio_in_length_range,
+            num_proc=num_workers,
+            input_columns=["input_lengths"],
+        )
 
-    # TODO: filter data with targets longer than max_target_length
-    def is_labels_in_length_range(transcription):
-        return len(transcription) > min_target_length
+    def is_labels_non_zero(transcription):
+        return len(transcription) > 0
 
     vectorized_datasets = vectorized_datasets.filter(
-        is_labels_in_length_range,
+        is_labels_non_zero,
         num_proc=num_workers,
         input_columns=[text_column_name],
     )
@@ -616,9 +631,9 @@ def main():
 
     # Function to build a NeMo tokenizer manifest from a HF dataset
     # TODO: with a bit of hacking around we can probably bypass this step entirely
-    def build_manifest(ds, split, manifest_path):
+    def build_manifest(ds, manifest_path):
         with open(manifest_path, 'w') as fout:
-            for sample in tqdm(ds[split]):
+            for sample in tqdm(ds):
                 # Write the metadata to the manifest
                 metadata = {
                     "text": sample[text_column_name]
@@ -626,23 +641,22 @@ def main():
                 json.dump(metadata, fout)
                 fout.write('\n')
 
-    if not os.path.exists(model_args.manifest_path):
-        os.makedirs(model_args.manifest_path)
-
     config.train_ds = config.validation_ds = config.test_ds = None
 
-    if training_args.do_train:
-        TRAIN_MANIFEST = os.path.join(model_args.manifest_path, "train.json")
-        logger.info(f"Building training manifest at {TRAIN_MANIFEST}")
-        build_manifest(vectorized_datasets, "train", TRAIN_MANIFEST)
-        # Only use the train transcripts to build the tokenizer
-        manifest = TRAIN_MANIFEST
+    if not os.path.exists(model_args.manifest_path) and training_args.do_train:
+        os.makedirs(model_args.manifest_path)
+        manifest = os.path.join(model_args.manifest_path, "train.json")
+        logger.info(f"Building training manifest at {manifest}")
+        build_manifest(vectorized_datasets["train"], manifest)
+    else:
+        manifest = os.path.join(model_args.manifest_path, "train.json")
+        logger.info(f"Re-using training manifest at {manifest}")
 
-        tokenizer_dir, tokenizer_type_cfg = build_tokenizer(model_args, data_args, manifest)
+    tokenizer_dir, tokenizer_type_cfg = build_tokenizer(model_args, data_args, manifest)
 
-        # generalise the script later to load a pre-built tokenizer for eval only
-        config.tokenizer.dir = tokenizer_dir
-        config.tokenizer.type = tokenizer_type_cfg
+    # generalise the script later to load a pre-built tokenizer for eval only
+    config.tokenizer.dir = tokenizer_dir
+    config.tokenizer.type = tokenizer_type_cfg
 
     model = RNNTBPEModel(cfg=config)
 
@@ -664,6 +678,17 @@ def main():
         if unexpected_keys:
             logger.warning(f"The following keys are unexpected when loading the model weights: {unexpected_keys}")
 
+    def enable_bn(m):
+        if type(m) == nn.BatchNorm1d:
+            m.train()
+            for param in m.parameters():
+                param.requires_grad_(True)
+
+    if model_args.freeze_encoder:
+        model.encoder.freeze()
+        model.encoder.apply(enable_bn)
+        logging.info("Model encoder has been frozen, and batch normalization has been unfrozen")
+
     # now that we have our model and tokenizer defined, we can tokenize the text data
     tokenizer = model.tokenizer.tokenizer.encode_as_ids
 
@@ -671,7 +696,9 @@ def main():
         batch["labels"] = tokenizer(batch[text_column_name])
         return batch
 
-    vectorized_datasets = vectorized_datasets.map(tokenize_transcripts, num_proc=num_workers, desc="Tokenizing datasets...", remove_columns=next(iter(raw_datasets.values())).column_names)
+    vectorized_datasets = vectorized_datasets.map(tokenize_transcripts, num_proc=num_workers,
+                                                  desc="Tokenizing datasets...",
+                                                  remove_columns=next(iter(raw_datasets.values())).column_names)
 
     # bnb optimizer
     decay_parameters = get_parameter_names(model, [torch.nn.LayerNorm])
@@ -729,7 +756,7 @@ def main():
         # use last checkpoint if exist
         if last_checkpoint is not None:
             checkpoint = last_checkpoint
-        elif os.path.isdir(model_args.model_name_or_path):
+        elif model_args.model_name_or_path is not None and os.path.isdir(model_args.model_name_or_path):
             checkpoint = model_args.model_name_or_path
         else:
             checkpoint = None
@@ -749,16 +776,18 @@ def main():
         trainer.save_metrics("train", metrics)
         trainer.save_state()
 
-    # Final evaluation (beam search)
-    results = {}
-    if training_args.do_eval:
-        logger.info("*** Running Final Evaluation (beam search) ***")
+    # Change decoding strategy for
+    if training_args.do_eval or training_args.do_predict:
         # set beam search decoding config
         beam_decoding_config = copy.deepcopy(config.decoding)
-        beam_decoding_config.strategy = "beam"  # Options are `greedy`, `greedy_batch`, `beam`, `tsd` and `alsd`
-        beam_decoding_config.beam.beam_size = 4  # Increase beam size for better scores, but it will take much longer for transcription !
+        beam_decoding_config.strategy = model_args.final_decoding_strategy
+        beam_decoding_config.beam.beam_size = model_args.final_num_beams
 
         trainer.model.change_decoding_strategy(beam_decoding_config)
+
+    results = {}
+    if training_args.do_eval:
+        logger.info(f"*** Running Final Evaluation ({model_args.final_decoding_strategy}) ***")
 
         metrics = trainer.evaluate()
         max_eval_samples = (
@@ -768,6 +797,26 @@ def main():
 
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
+
+    if training_args.do_predict:
+        logger.info(f"*** Running Final Prediction ({model_args.final_decoding_strategy}) ***")
+
+        for split in test_split:
+            predict_results = trainer.predict(
+                vectorized_datasets[split], metric_key_prefix=split, )
+            metrics = predict_results.metrics
+            max_predict_samples = (
+                data_args.max_predict_samples if data_args.max_predict_samples is not None else len(vectorized_datasets[split])
+            )
+            metrics[f"{split}_samples"] = min(max_predict_samples, len(vectorized_datasets[split]))
+
+            trainer.log_metrics(split, metrics)
+            trainer.save_metrics(split, metrics)
+
+            if "wandb" in training_args.report_to:
+                import wandb
+                metrics = {os.path.join(split, k[len(split)+1:]): v for k, v in metrics.items()}
+                wandb.log(metrics)
 
     # Write model card and (optionally) push to hub
     config_name = data_args.dataset_config_name if data_args.dataset_config_name is not None else "na"
@@ -786,8 +835,8 @@ def main():
 
     if training_args.push_to_hub:
         trainer.push_to_hub(**kwargs)
-    else:
-        trainer.create_model_card(**kwargs)
+    #else:
+        #trainer.create_model_card(**kwargs)
 
     return results
 
