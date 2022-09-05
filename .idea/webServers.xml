@@ -10,7 +10,7 @@
         </fileTransfer>
       </webServer>
       <webServer id="1707dda1-74b5-4fb7-baa1-f0182110070f" name="sanchit-v100">
-        <fileTransfer accessType="SFTP" host="34.121.156.54" port="22" sshConfigId="fbafc652-d221-4e25-91f8-de5edf66ddb8" sshConfig="sanchit-v100" keyPair="true">
+        <fileTransfer accessType="SFTP" host="34.68.106.29" port="22" sshConfigId="fbafc652-d221-4e25-91f8-de5edf66ddb8" sshConfig="sanchit-v100" keyPair="true">
           <advancedOptions>
             <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
           </advancedOptions>
@@ -18,6 +18,13 @@
       </webServer>
       <webServer id="a038bc08-bebc-469e-983c-81c811e2ee5f" name="sanchit-a100">
         <fileTransfer accessType="SFTP" host="35.204.232.202" port="22" sshConfigId="d8bb1721-7310-456f-9452-ecbd2dc2615f" sshConfig="sanchit-a100" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+      <webServer id="76519568-d1c8-4666-b0c7-3576dcad09e8" name="sanchit-a100-2">
+        <fileTransfer accessType="SFTP" host="34.90.247.170" port="22" sshConfigId="22814945-a021-4fe1-a982-0bdeb64164b2" sshConfig="sanchit-a100-2" keyPair="true">
           <advancedOptions>
             <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
           </advancedOptions>

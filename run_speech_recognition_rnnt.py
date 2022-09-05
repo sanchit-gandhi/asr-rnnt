@@ -210,11 +210,17 @@ class DataTrainingArguments:
     max_duration_in_seconds: float = field(
         default=20.0,
         metadata={
-            "help": "Truncate audio files that are longer than `max_duration_in_seconds` seconds to 'max_duration_in_seconds`"
+            "help": "Truncate training audio files that are longer than `max_duration_in_seconds` seconds to 'max_duration_in_seconds`"
         },
     )
     min_duration_in_seconds: float = field(
         default=0.0, metadata={"help": "Filter audio files that are shorter than `min_duration_in_seconds` seconds"}
+    )
+    max_eval_duration_in_seconds: float = field(
+        default=None,
+        metadata={
+            "help": "Truncate eval/test audio files that are longer than `max_duration_in_seconds` seconds to 'max_duration_in_seconds`"
+        },
     )
     max_target_length: Optional[int] = field(
         default=128,
@@ -466,6 +472,7 @@ def main():
     # We need to read the audio files as arrays and tokenize the targets.
     max_input_length = int(data_args.max_duration_in_seconds * config.sample_rate)
     min_input_length = min(int(data_args.min_duration_in_seconds * config.sample_rate), 1)
+    max_eval_input_length = int(data_args.max_eval_duration_in_seconds * config.sample_rate) if data_args.max_eval_duration_in_seconds else None
     max_target_length = data_args.max_target_length
     min_target_length = data_args.min_target_length
     audio_column_name = data_args.audio_column_name
@@ -610,6 +617,17 @@ def main():
             input_columns=["input_lengths"],
         )
 
+    if max_eval_input_length is not None:
+        # filter training data with inputs longer than max_input_length
+        def is_eval_audio_in_length_range(length):
+            return min_input_length < length < max_eval_input_length
+
+        vectorized_datasets = vectorized_datasets.filter(
+            is_eval_audio_in_length_range,
+            num_proc=num_workers,
+            input_columns=["input_length"],
+        )
+
     def is_labels_non_zero(transcription):
         return len(transcription) > 0
 
@@ -633,10 +651,10 @@ def main():
     # TODO: with a bit of hacking around we can probably bypass this step entirely
     def build_manifest(ds, manifest_path):
         with open(manifest_path, 'w') as fout:
-            for sample in tqdm(ds):
+            for sample in tqdm(ds[text_column_name]):
                 # Write the metadata to the manifest
                 metadata = {
-                    "text": sample[text_column_name]
+                    "text": sample
                 }
                 json.dump(metadata, fout)
                 fout.write('\n')
