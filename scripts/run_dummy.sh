@@ -30,5 +30,5 @@ CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
         --overwrite_output_dir \
         --fp16 \
         --do_lower_case \
-        --do_train \
-        --do_predict
+        --do_predict \
+        --do_train

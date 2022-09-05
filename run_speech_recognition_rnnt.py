@@ -745,12 +745,15 @@ def main():
         config.joint.fused_batch_size = model_args.fused_batch_size
 
     def compute_metrics(pred):
-        # Tuple of WERs returned by the model during eval: (wer, wer_num, wer_denom)
-        wer_num = pred.predictions[1]
-        wer_denom = pred.predictions[2]
-        # compute WERs over concat batches
+        # Tuple of WERs/CERs returned by the model during eval: (wer_num, wer_denom, cer_num, cer_denom)
+        wer_num = pred.predictions[0]
+        wer_denom = pred.predictions[1]
+        cer_num = pred.predictions[2]
+        cer_denom = pred.predictions[3]
+        # compute WERs/CERs over concat batches
         wer = sum(wer_num) / sum(wer_denom)
-        return {"wer": wer}
+        cer = sum(cer_num) / sum(cer_denom)
+        return {"wer": wer, "cer": cer}
 
     # Set wandb project ID before instantiating the Trainer
     os.environ["WANDB_PROJECT"] = data_args.wandb_project
