@@ -726,7 +726,7 @@ def main():
         if unexpected_keys:
             logger.warning(f"The following keys are unexpected when loading the model weights: {unexpected_keys}")
 
-    if model_args.freeze_encoder and model_args.add_adapter:
+    if model_args.add_adapter:
         adapter_name = model_args.config_path.split("/")[-1].split(".")[0]
         adapter_dim = model.cfg.encoder.d_model
         adapter_activation = "swish"
@@ -753,9 +753,10 @@ def main():
         model.encoder.freeze()
         model.encoder.apply(enable_bn)
         logging.info("Model encoder has been frozen, and batch normalization has been unfrozen")
-        if model_args.add_adapter:
-            model.unfreeze_enabled_adapters()
-            logging.info("Model adapter has been unfrozen")
+
+    if model_args.add_adapter:
+        model.unfreeze_enabled_adapters()
+        logging.info("Model adapter has been unfrozen")
 
     # now that we have our model and tokenizer defined, we can tokenize the text data
     tokenizer = model.tokenizer.tokenizer.encode_as_ids
@@ -804,6 +805,7 @@ def main():
 
     class UnfreezeEncoderCallback(TrainerCallback):
         def on_step_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+            # hard-coded for now...
             if state.global_step % 50 == 0:
                 model.encoder.unfreeze()
                 logging.info("Model encoder has been unfrozen")
