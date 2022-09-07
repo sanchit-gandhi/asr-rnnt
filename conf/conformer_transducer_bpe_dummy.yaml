@@ -126,7 +126,7 @@ model:
       dropout: 0.2
 
   joint:
-    _target_: models.modeling_rnnt.RNNTJointCustom
+    _target_: nemo.collections.asr.modules.RNNTJoint
     log_softmax: null  # 'null' would set it automatically according to CPU/GPU device
     preserve_memory: false  # dramatically slows down training, but might preserve some memory
 

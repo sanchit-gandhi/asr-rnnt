@@ -3,14 +3,7 @@
   <component name="WebServers">
     <option name="servers">
       <webServer id="66491724-b6cd-42a3-b85c-285c36fef01e" name="patrick-a100">
-        <fileTransfer accessType="SFTP" host="34.67.69.143" port="22" sshConfigId="cf19732b-35f9-421a-bcde-636110e61e0f" sshConfig="patrick-a100" keyPair="true">
-          <advancedOptions>
-            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
-          </advancedOptions>
-        </fileTransfer>
-      </webServer>
-      <webServer id="1707dda1-74b5-4fb7-baa1-f0182110070f" name="sanchit-v100">
-        <fileTransfer accessType="SFTP" host="34.68.106.29" port="22" sshConfigId="fbafc652-d221-4e25-91f8-de5edf66ddb8" sshConfig="sanchit-v100" keyPair="true">
+        <fileTransfer accessType="SFTP" host="34.135.237.233" port="22" sshConfigId="cf19732b-35f9-421a-bcde-636110e61e0f" sshConfig="patrick-a100" keyPair="true">
           <advancedOptions>
             <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
           </advancedOptions>
@@ -30,14 +23,21 @@
           </advancedOptions>
         </fileTransfer>
       </webServer>
+      <webServer id="1707dda1-74b5-4fb7-baa1-f0182110070f" name="sanchit-v100">
+        <fileTransfer accessType="SFTP" host="34.68.106.29" port="22" sshConfigId="fbafc652-d221-4e25-91f8-de5edf66ddb8" sshConfig="sanchit-v100" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
     </option>
     <groups>
       <group>
         <name>huggingface-ml</name>
         <servers>
           <name value="patrick-a100" />
-          <name value="sanchit-v100" />
           <name value="sanchit-a100" />
+          <name value="sanchit-a100-2" />
         </servers>
       </group>
     </groups>

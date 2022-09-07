@@ -26,13 +26,15 @@ CUDA_VISIBLE_DEVICES=1 python run_speech_recognition_rnnt.py \
         --report_to="wandb" \
         --preprocessing_num_workers="4" \
         --fused_batch_size="8" \
+        --length_column_name="input_lengths" \
+        --do_lower_case="False" \
         --fuse_loss_wer \
         --group_by_length \
         --overwrite_output_dir \
         --fp16 \
-        --do_lower_case \
         --do_train \
         --do_eval \
         --do_predict \
         --push_to_hub \
+        --freeze_encoder \
         --use_auth_token
