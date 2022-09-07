@@ -32,8 +32,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, open_dict
 from models import RNNTBPEModel
+from nemo.core import adapter_mixins
+from nemo.collections.common.parts.adapter_modules import LinearAdapterConfig
 
 import datasets
 from datasets import DatasetDict, load_dataset
@@ -43,6 +45,10 @@ from transformers import (
     Seq2SeqTrainingArguments,
     set_seed,
     Trainer,
+    TrainerCallback,
+    TrainingArguments,
+    TrainerState,
+    TrainerControl,
 )
 from transformers.trainer_pt_utils import get_parameter_names
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
@@ -149,6 +155,14 @@ class ModelArguments:
     freeze_encoder: bool = field(
         default=False,
         metadata={"help": "Freeze the acoustic encoder of the model. Recommend when fine-tuning on small datasets."}
+    )
+    unfreeze_encoder: bool = field(
+        default=False,
+        metadata={"help": "Unfreeze the acoustic encoder of the model after first evaluation step."}
+    )
+    add_adapter: bool = field(
+        default=False,
+        metadata={"help": "Add an adapter layer to the encoder of the model."}
     )
 
 
@@ -367,6 +381,9 @@ def main():
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+
+    # Set wandb project ID before instantiating the Trainer
+    os.environ["WANDB_PROJECT"] = data_args.wandb_project
 
     # Detecting last checkpoint.
     last_checkpoint = None
@@ -676,6 +693,19 @@ def main():
     config.tokenizer.dir = tokenizer_dir
     config.tokenizer.type = tokenizer_type_cfg
 
+    if model_args.add_adapter:
+        # Utility method to check and update the model config
+        def update_model_config_to_support_adapter(model_cfg):
+            with open_dict(model_cfg):
+                adapter_metadata = adapter_mixins.get_registered_adapter(model_cfg.encoder._target_)
+                if adapter_metadata is not None:
+                    model_cfg.encoder._target_ = adapter_metadata.adapter_class_path
+
+            logging.info("Updated encoder _target_ model :", model_cfg.encoder._target_)
+            return model_cfg
+
+        config = update_model_config_to_support_adapter(config)
+
     model = RNNTBPEModel(cfg=config)
 
     if model_args.model_name_or_path is not None:
@@ -696,6 +726,23 @@ def main():
         if unexpected_keys:
             logger.warning(f"The following keys are unexpected when loading the model weights: {unexpected_keys}")
 
+    if model_args.freeze_encoder and model_args.add_adapter:
+        adapter_name = model_args.config_path.split("/")[-1].split(".")[0]
+        adapter_dim = model.cfg.encoder.d_model
+        adapter_activation = "swish"
+        adapter_norm_position = "post"
+        adapter_cfg = LinearAdapterConfig(
+            in_features=model.cfg.encoder.d_model,
+            # conformer specific model dim. Every layer emits this dim at its output.
+            dim=adapter_dim,  # the bottleneck dimension of the adapter
+            activation=adapter_activation,  # activation used in bottleneck block
+            norm_position=adapter_norm_position,  # whether to use LayerNorm at the beginning or the end of the adapter
+        )
+        logger.info("Adapter config: ", adapter_cfg)
+        model.add_adapter(name=adapter_name, cfg=adapter_cfg)
+        model.set_enabled_adapters(enabled=False)  # disable all adapters
+        model.set_enabled_adapters(name=adapter_name, enabled=True)  # enable only the current adapter we want to train
+
     def enable_bn(m):
         if type(m) == nn.BatchNorm1d:
             m.train()
@@ -706,6 +753,9 @@ def main():
         model.encoder.freeze()
         model.encoder.apply(enable_bn)
         logging.info("Model encoder has been frozen, and batch normalization has been unfrozen")
+        if model_args.add_adapter:
+            model.unfreeze_enabled_adapters()
+            logging.info("Model adapter has been unfrozen")
 
     # now that we have our model and tokenizer defined, we can tokenize the text data
     tokenizer = model.tokenizer.tokenizer.encode_as_ids
@@ -752,8 +802,11 @@ def main():
         wer = sum(wer_num) / sum(wer_denom)
         return {"wer": wer}
 
-    # Set wandb project ID before instantiating the Trainer
-    os.environ["WANDB_PROJECT"] = data_args.wandb_project
+    class UnfreezeEncoderCallback(TrainerCallback):
+        def on_step_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+            if state.global_step % 50 == 0:
+                model.encoder.unfreeze()
+                logging.info("Model encoder has been unfrozen")
 
     # Initialize Trainer
     trainer = Trainer(
@@ -764,6 +817,7 @@ def main():
         train_dataset=vectorized_datasets['train'] if training_args.do_train else None,
         eval_dataset=vectorized_datasets['eval'] if training_args.do_eval else None,
         data_collator=NeMoDataCollator,
+        callbacks=[UnfreezeEncoderCallback] if model_args.unfreeze_encoder else None,
     )
 
     # 8. Finally, we can start training

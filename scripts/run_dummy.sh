@@ -22,13 +22,17 @@ CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
         --report_to="wandb" \
         --push_to_hub="False" \
         --preprocessing_num_workers="4" \
-        --max_train_samples="8" \
+        --max_train_samples="16" \
+        --evaluation_strategy="epoch" \
         --max_eval_samples="8" \
         --max_predict_samples="8" \
         --final_num_beams="1" \
         --group_by_length \
         --overwrite_output_dir \
         --fp16 \
+        --freeze_encoder \
+        --add_adapter \
+        --unfreeze_encoder \
         --do_lower_case \
-        --do_train \
-        --do_predict
+        --do_eval \
+        --do_train

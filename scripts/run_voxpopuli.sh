@@ -26,6 +26,7 @@ CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
         --report_to="wandb" \
         --preprocessing_num_workers="4" \
         --fused_batch_size="8" \
+        --length_column_name="input_lengths" \
         --fuse_loss_wer \
         --group_by_length \
         --overwrite_output_dir \
@@ -35,4 +36,5 @@ CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
         --do_eval \
         --do_predict \
         --push_to_hub \
+        --freeze_encoder \
         --use_auth_token
