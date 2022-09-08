@@ -12,7 +12,7 @@ CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
         --test_split_name="test" \
         --text_column_name="text" \
         --output_dir="./" \
-        --run_name="rnnt-tedlium-1e-3-freeze-encoder-add-adapter" \
+        --run_name="rnnt-tedlium-1e-3-freeze-encoder-unfreeze-encoder" \
         --wandb_project="rnnt-debug-tedlium" \
         --per_device_train_batch_size="8" \
         --per_device_eval_batch_size="4" \
@@ -29,11 +29,10 @@ CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
         --final_decoding_strategy="greedy_batch" \
         --final_num_beams="1" \
         --freeze_encoder \
-        --add_adapter \
+        --unfreeze_encoder \
         --fuse_loss_wer \
         --group_by_length \
         --overwrite_output_dir \
-        --fp16 \
         --do_lower_case \
         --do_train \
         --do_eval \

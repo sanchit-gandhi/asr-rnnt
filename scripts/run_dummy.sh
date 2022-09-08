@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
+CUDA_VISIBLE_DEVICES=1 python run_speech_recognition_rnnt.py \
         --config_path="conf/conformer_transducer_bpe_dummy.yaml" \
         --dataset_name="hf-internal-testing/librispeech_asr_dummy" \
         --tokenizer_path="tokenizer" \
@@ -16,17 +16,17 @@ CUDA_VISIBLE_DEVICES=0 python run_speech_recognition_rnnt.py \
         --wandb_project="rnnt-dummy" \
         --per_device_train_batch_size="8" \
         --per_device_eval_batch_size="4" \
-        --logging_steps="25" \
+        --logging_steps="1" \
         --learning_rate="1e-4" \
-        --warmup_steps="5" \
+        --warmup_steps="3" \
         --report_to="wandb" \
         --push_to_hub="False" \
         --preprocessing_num_workers="4" \
-        --max_train_samples="16" \
         --evaluation_strategy="epoch" \
         --max_eval_samples="8" \
         --max_predict_samples="8" \
         --final_num_beams="1" \
+        --length_column_name="input_lengths" \
         --group_by_length \
         --overwrite_output_dir \
         --fp16 \
