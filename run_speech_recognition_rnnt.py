@@ -123,7 +123,7 @@ class ModelArguments:
         },
     )
     cutoff_freq: str = field(
-        default=0.01,
+        default=0.001,
         metadata={"help": "Drop the least frequent chars from the train set when building the tokenizer."}
     )
     fuse_loss_wer: bool = field(
@@ -781,29 +781,6 @@ def main():
                                                   desc="Tokenizing datasets...",
                                                   remove_columns=next(iter(raw_datasets.values())).column_names)
 
-    if model_args.use_adam8bit:
-        # bnb optimizer
-        decay_parameters = get_parameter_names(model, [torch.nn.LayerNorm])
-        decay_parameters = [name for name in decay_parameters if "bias" not in name]
-        optimizer_grouped_parameters = [
-            {
-                "params": [p for n, p in model.named_parameters() if n in decay_parameters],
-                "weight_decay": training_args.weight_decay,
-            },
-            {
-                "params": [p for n, p in model.named_parameters() if n not in decay_parameters],
-                "weight_decay": 0.0,
-            },
-        ]
-        optimizer = bnb.optim.Adam8bit(
-            params=optimizer_grouped_parameters,
-            lr=training_args.learning_rate,
-            betas=(training_args.adam_beta1, training_args.adam_beta2),
-            eps=training_args.adam_epsilon,
-        )
-    else:
-        optimizer = None
-
     def compute_metrics(pred):
         # Tuple of WERs returned by the model during eval: (wer, wer_num, wer_denom)
         wer_num = pred.predictions[1]
@@ -815,13 +792,24 @@ def main():
     class UnfreezeEncoderCallback(TrainerCallback):
         def on_evaluate(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
             model.encoder.unfreeze()
-            logging.info("Model encoder has been unfrozen")
+            print("Model encoder has been unfrozen")
+
+    class NeMoTrainer(Trainer):
+        def _save(self, output_dir: Optional[str] = None, state_dict=None):
+            # If we are executing this function, we are the process zero, so we don't check for that.
+            output_dir = output_dir if output_dir is not None else self.args.output_dir
+            os.makedirs(output_dir, exist_ok=True)
+            logger.info(f"Saving model checkpoint to {output_dir}")
+            # Save a trained model and configuration using `save_pretrained()`.
+            # They can then be reloaded using `from_pretrained()`
+            self.model.save_to(save_path=os.path.join(output_dir, "frozen_enc.nemo"))
+            # Good practice: save your training arguments together with the trained model
+            torch.save(self.args, os.path.join(output_dir, "training_args.bin"))
 
     # Initialize Trainer
-    trainer = Trainer(
+    trainer = NeMoTrainer(
         model=model,
         args=training_args,
-        optimizers=(optimizer, None),
         compute_metrics=compute_metrics,
         train_dataset=vectorized_datasets['train'] if training_args.do_train else None,
         eval_dataset=vectorized_datasets['eval'] if training_args.do_eval else None,
