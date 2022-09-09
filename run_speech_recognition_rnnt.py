@@ -116,11 +116,15 @@ class ModelArguments:
         },
     )
     spe_type: str = field(
-        default="unigram",
+        default="bpe",
         metadata={
             "help": "Type of the SentencePiece model. Can be `bpe`, `unigram`, `char` or `word`."
                     "Used only if `tokenizer_type` == `spe`"
         },
+    )
+    cutoff_freq: str = field(
+        default=0.001,
+        metadata={"help": "Drop the least frequent chars from the train set when building the tokenizer."}
     )
     fuse_loss_wer: bool = field(
         default=True,
@@ -163,6 +167,10 @@ class ModelArguments:
     add_adapter: bool = field(
         default=False,
         metadata={"help": "Add an adapter layer to the encoder of the model."}
+    )
+    use_adam8bit: bool = field(
+        default=False,
+        metadata={"help": "Whether to use bitsandbytes 8bit AdamW optimiser."}
     )
 
 
@@ -298,6 +306,9 @@ def build_tokenizer(model_args, data_args, manifests):
     vocab_size = model_args.vocab_size
     tokenizer = model_args.tokenizer_type
     spe_type = model_args.spe_type
+    if not 0 <= model_args.cutoff_freq < 1:
+        raise ValueError(f"`cutoff_freq` must be between zero and one, got {model_args.cutoff_freq}")
+    spe_character_coverage = 1 - model_args.cutoff_freq
 
     logger.info("Building tokenizer...")
     if not os.path.exists(data_root):
@@ -312,7 +323,7 @@ def build_tokenizer(model_args, data_args, manifests):
         tokenizer,
         spe_type,
         lower_case=data_args.do_lower_case,
-        spe_character_coverage=1.0,
+        spe_character_coverage=spe_character_coverage,
         spe_sample_size=-1,
         spe_train_extremely_large_corpus=False,
         spe_max_sentencepiece_length=-1,
@@ -706,25 +717,26 @@ def main():
 
         config = update_model_config_to_support_adapter(config)
 
-    model = RNNTBPEModel(cfg=config)
+    # possibly fused-computation of prediction net + joint net + loss + WER calculation
+    config.joint.fuse_loss_wer = model_args.fuse_loss_wer
+    if model_args.fuse_loss_wer:
+        config.joint.fused_batch_size = model_args.fused_batch_size
 
     if model_args.model_name_or_path is not None:
         # load pre-trained model weights
-        pretrained_model = RNNTBPEModel.from_pretrained(model_args.model_name_or_path, map_location="cpu")
+        model = RNNTBPEModel.from_pretrained(model_args.model_name_or_path, override_config_path=config, map_location="cpu")
 
-        if len(pretrained_model.cfg.labels) != len(model.cfg.labels):
-            logger.warning(f"Vocabulary size of the tokenizer does not match that of the pre-trained checkpoint."
-                           f"Got {len(model.cfg.labels)} for the tokenizer, and {len(pretrained_model.cfg.labels)}"
-                           f"for the pre-trained checkpoint. Expect a mis-match in weights for the decoder and joint"
-                           f"modules... It is recommended to build your tokenizer to the same vocab size as that of the"
-                           f"pre-trained checkpoint ({len(pretrained_model.cfg.labels)}).")
+        pretrained_decoder = model.decoder.state_dict()
+        pretrained_joint = model.joint.state_dict()
+        model.change_vocabulary(new_tokenizer_dir=tokenizer_dir, new_tokenizer_type=tokenizer_type_cfg)
 
-        # load encoder-decoder-joint in its entirety; in practice, boosts WER by 1-2 absolute %
-        missing_keys, unexpected_keys = model.load_state_dict(pretrained_model.state_dict(), strict=False)
-        if missing_keys:
-            logger.warning(f"The following keys are missing when loading the model weights: {missing_keys}")
-        if unexpected_keys:
-            logger.warning(f"The following keys are unexpected when loading the model weights: {unexpected_keys}")
+        # TODO: add checks for loading decoder/joint state dict
+        model.decoder.load_state_dict(pretrained_decoder)
+        model.joint.load_state_dict(pretrained_joint)
+
+    else:
+        model = RNNTBPEModel(cfg=config)
+        model.change_vocabulary(new_tokenizer_dir=tokenizer_dir, new_tokenizer_type=tokenizer_type_cfg)
 
     if model_args.add_adapter:
         adapter_name = model_args.config_path.split("/")[-1].split(".")[0]
@@ -769,32 +781,6 @@ def main():
                                                   desc="Tokenizing datasets...",
                                                   remove_columns=next(iter(raw_datasets.values())).column_names)
 
-    # bnb optimizer
-    decay_parameters = get_parameter_names(model, [torch.nn.LayerNorm])
-    decay_parameters = [name for name in decay_parameters if "bias" not in name]
-    optimizer_grouped_parameters = [
-        {
-            "params": [p for n, p in model.named_parameters() if n in decay_parameters],
-            "weight_decay": training_args.weight_decay,
-        },
-        {
-            "params": [p for n, p in model.named_parameters() if n not in decay_parameters],
-            "weight_decay": 0.0,
-        },
-    ]
-    optimizer = bnb.optim.Adam8bit(
-        params=optimizer_grouped_parameters,
-        lr=training_args.learning_rate,
-        betas=(training_args.adam_beta1, training_args.adam_beta2),
-        eps=training_args.adam_epsilon,
-    )
-    optimizers = (optimizer, None)
-
-    # possibly fused-computation of prediction net + joint net + loss + WER calculation
-    config.joint.fuse_loss_wer = model_args.fuse_loss_wer
-    if model_args.fuse_loss_wer:
-        config.joint.fused_batch_size = model_args.fused_batch_size
-
     def compute_metrics(pred):
         # Tuple of WERs returned by the model during eval: (wer, wer_num, wer_denom)
         wer_num = pred.predictions[1]
@@ -804,17 +790,26 @@ def main():
         return {"wer": wer}
 
     class UnfreezeEncoderCallback(TrainerCallback):
-        def on_step_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
-            # hard-coded for now...
-            if state.global_step % 50 == 0:
-                model.encoder.unfreeze()
-                logging.info("Model encoder has been unfrozen")
+        def on_evaluate(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+            model.encoder.unfreeze()
+            print("Model encoder has been unfrozen")
+
+    class NeMoTrainer(Trainer):
+        def _save(self, output_dir: Optional[str] = None, state_dict=None):
+            # If we are executing this function, we are the process zero, so we don't check for that.
+            output_dir = output_dir if output_dir is not None else self.args.output_dir
+            os.makedirs(output_dir, exist_ok=True)
+            logger.info(f"Saving model checkpoint to {output_dir}")
+            # Save a trained model and configuration using `save_pretrained()`.
+            # They can then be reloaded using `from_pretrained()`
+            self.model.save_to(save_path=os.path.join(output_dir, "frozen_enc.nemo"))
+            # Good practice: save your training arguments together with the trained model
+            torch.save(self.args, os.path.join(output_dir, "training_args.bin"))
 
     # Initialize Trainer
-    trainer = Trainer(
+    trainer = NeMoTrainer(
         model=model,
         args=training_args,
-        optimizers=optimizers,
         compute_metrics=compute_metrics,
         train_dataset=vectorized_datasets['train'] if training_args.do_train else None,
         eval_dataset=vectorized_datasets['eval'] if training_args.do_eval else None,
@@ -850,7 +845,7 @@ def main():
         trainer.save_metrics("train", metrics)
         trainer.save_state()
 
-    # Change decoding strategy for
+    # Change decoding strategy for final eval/predict
     if training_args.do_eval or training_args.do_predict:
         # set beam search decoding config
         beam_decoding_config = copy.deepcopy(config.decoding)
