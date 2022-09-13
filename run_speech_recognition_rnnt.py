@@ -143,14 +143,14 @@ class ModelArguments:
         }
     )
     final_decoding_strategy: str = field(
-        default="beam",
+        default="greedy_batch",
         metadata={
             "help": "Decoding strategy for final eval/prediction steps. One of: [`greedy`, `greedy_batch`, `beam`, "
                     "`tsd`, `alsd`]."
         }
     )
     final_num_beams: int = field(
-        default=4,
+        default=1,
         metadata={
             "help": "Number of beams for final eval/prediction steps. Increase beam size for better scores, "
                     "but it will take much longer for transcription!"
@@ -725,6 +725,7 @@ def main():
     if model_args.model_name_or_path is not None:
         # load pre-trained model weights
         model = RNNTBPEModel.from_pretrained(model_args.model_name_or_path, override_config_path=config, map_location="cpu")
+        model.save_name = model_args.model_name_or_path
 
         pretrained_decoder = model.decoder.state_dict()
         pretrained_joint = model.joint.state_dict()
@@ -736,6 +737,7 @@ def main():
 
     else:
         model = RNNTBPEModel(cfg=config)
+        model.save_name = model_args.config_path.split("/")[-1].split(".")[0]
         model.change_vocabulary(new_tokenizer_dir=tokenizer_dir, new_tokenizer_type=tokenizer_type_cfg)
 
     if model_args.add_adapter:
@@ -802,7 +804,7 @@ def main():
             logger.info(f"Saving model checkpoint to {output_dir}")
             # Save a trained model and configuration using `save_pretrained()`.
             # They can then be reloaded using `from_pretrained()`
-            self.model.save_to(save_path=os.path.join(output_dir, "frozen_enc.nemo"))
+            self.model.save_to(save_path=os.path.join(output_dir, model.save_name + ".nemo"))
             # Good practice: save your training arguments together with the trained model
             torch.save(self.args, os.path.join(output_dir, "training_args.bin"))
 
@@ -848,7 +850,7 @@ def main():
     # Change decoding strategy for final eval/predict
     if training_args.do_eval or training_args.do_predict:
         # set beam search decoding config
-        beam_decoding_config = copy.deepcopy(config.decoding)
+        beam_decoding_config = copy.deepcopy(trainer.model.cfg.decoding)
         beam_decoding_config.strategy = model_args.final_decoding_strategy
         beam_decoding_config.beam.beam_size = model_args.final_num_beams
 
@@ -885,6 +887,25 @@ def main():
             if "wandb" in training_args.report_to:
                 import wandb
                 metrics = {os.path.join(split, k[len(split)+1:]): v for k, v in metrics.items()}
+                wandb.log(metrics)
+
+        # re-evaluate on the test set, this time computing the CER
+        # this is pretty wasteful to run eval twice, but very fast to implement
+        trainer.model.wer.use_cer = True
+        trainer.model.change_decoding_strategy(trainer.model.cfg.decoding)
+
+        for split in test_split:
+            predict_results = trainer.predict(
+                vectorized_datasets[split], metric_key_prefix=split, )
+            metrics = predict_results.metrics
+            # the returned metric is the CER, but under an erroneous key; we swap them here
+            metrics = {f"{split}_cer": metrics[f"{split}_wer"]}
+
+            trainer.log_metrics(split, metrics)
+            trainer.save_metrics(split, metrics)
+
+            if "wandb" in training_args.report_to:
+                metrics = {os.path.join(split, k[len(split) + 1:]): v for k, v in metrics.items()}
                 wandb.log(metrics)
 
     # Write model card and (optionally) push to hub
