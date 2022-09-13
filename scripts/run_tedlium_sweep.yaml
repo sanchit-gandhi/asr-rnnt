@@ -1,0 +1,82 @@
+command:
+  - python3
+  - ${program}
+  - --use_auth_token
+  - --group_by_length
+  - --overwrite_output_dir
+  - --fp16
+  - --do_lower_case
+  - --do_eval
+  - --do_train
+  - --fuse_loss_wer
+  - ${args}
+method: random
+metric:
+  goal: minimize
+  name: eval/wer
+parameters:
+  config_path:
+    value: conf/conformer_transducer_bpe_xlarge.yaml
+  dataset_config_name:
+    value: release3
+  dataset_name:
+    value: LIUM/tedlium
+  eval_split_name:
+    value: validation
+  evaluation_strategy:
+    value: steps
+  eval_steps:
+    value: 2000
+  fused_batch_size:
+    value: 8
+  learning_rate:
+    values:
+      - 1e-1
+      - 3e-2
+      - 1e-2
+      - 3e-3
+      - 1e-3
+      - 3e-4
+      - 1e-4
+  logging_steps:
+    value: 25
+  model_name_or_path:
+    value: stt_en_conformer_transducer_xlarge
+  max_steps:
+    value: 8000
+  output_dir:
+    value: ./sweep_output_dir
+  per_device_eval_batch_size:
+    value: 4
+  per_device_train_batch_size:
+    value: 8
+  preprocessing_num_workers:
+    value: 4
+  save_strategy:
+    value: "no"
+  tokenizer_path:
+    value: tokenizer
+  train_split_name:
+    value: train
+  vocab_size:
+    value: 1024
+  warmup_steps:
+    value: 500
+  wandb_project:
+    value: rnnt-debug-tedlium
+  freeze_encoder:
+    values:
+      - true
+      - false
+  add_adapter:
+    values:
+      - true
+      - false
+  unfreeze_encoder:
+    values:
+      - true
+      - false
+  length_column_name:
+    value: input_lengths
+program: run_speech_recognition_rnnt.py
+project: rnnt-debug-tedlium
