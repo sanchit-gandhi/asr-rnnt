@@ -113,3 +113,14 @@ class RNNTBPEModel(EncDecRNNTBPEModel):
             loss_value = self.add_auxiliary_losses(loss_value)
 
         return RNNTOutput(loss=loss_value, wer=wer, wer_num=wer_num, wer_denom=wer_denom)
+
+    def transcribe(self, input_ids, input_lengths=None, labels=None, label_lengths=None, return_hypotheses: bool = False, partial_hypothesis: Optional = None):
+        encoded, encoded_len = self.encoding(input_signal=input_ids, input_signal_length=input_lengths)
+        del input_ids
+        best_hyp, all_hyp = self.decoding.rnnt_decoder_predictions_tensor(
+            encoded,
+            encoded_len,
+            return_hypotheses=return_hypotheses,
+            partial_hypotheses=partial_hypothesis,
+        )
+        return best_hyp, all_hyp

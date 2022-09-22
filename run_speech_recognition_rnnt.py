@@ -22,11 +22,15 @@ import logging
 import os
 import re
 import sys
+import time
 from dataclasses import dataclass, field
 
+import torchaudio
+import wandb
+from torch.utils.data import Dataset
 from tqdm import tqdm
 import json
-from typing import Optional, Dict, Union, List
+from typing import Optional, Dict, Union, List, Any
 
 import numpy as np
 import torch
@@ -38,7 +42,7 @@ from nemo.core import adapter_mixins
 from nemo.collections.common.parts.adapter_modules import LinearAdapterConfig
 
 import datasets
-from datasets import DatasetDict, load_dataset
+from datasets import DatasetDict, load_dataset, load_metric
 import transformers
 from transformers import (
     HfArgumentParser,
@@ -51,7 +55,7 @@ from transformers import (
     TrainerControl,
 )
 from transformers.trainer_pt_utils import get_parameter_names
-from transformers.trainer_utils import get_last_checkpoint, is_main_process
+from transformers.trainer_utils import get_last_checkpoint, is_main_process, PredictionOutput
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 
@@ -80,6 +84,10 @@ class ModelArguments:
     model_name_or_path: Optional[str] = field(
         default=None,
         metadata={"help": "Path to pretrained model or model identifier from NVIDIA NeMo NGC."}
+    )
+    pretrained_model_name_or_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to local pretrained model or model identifier."}
     )
     cache_dir: Optional[str] = field(
         default=None,
@@ -291,6 +299,31 @@ class DataTrainingArguments:
         default="speech-recognition-rnnt",
         metadata={"help": "The name of the wandb project."},
     )
+    ignore_verifications: bool = field(
+        default=False,
+        metadata={
+            "help": "Ignore the verifications of the downloaded/processed dataset information in `load_dataset` (checksums/size/splits/...)."
+        }
+    )
+    torchaudio_resampler: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether to use torchaudio to resample. If `False` (default) will use the default datataset backed."
+        }
+    )
+
+
+def write_wandb_pred(pred_str, label_str, prefix="eval"):
+    # convert str data to a wandb compatible format
+    str_data = [[label_str[i], pred_str[i]] for i in range(len(pred_str))]
+    # we'll log all predictions for the last epoch
+    wandb.log(
+        {
+            f"{prefix}/predictions": wandb.Table(
+                columns=["label_str", "pred_str"], data=str_data
+            )
+        },
+    )
 
 
 def build_tokenizer(model_args, data_args, manifests):
@@ -445,6 +478,7 @@ def main():
             split=data_args.train_split_name,
             cache_dir=data_args.dataset_cache_dir,
             use_auth_token=True if model_args.use_auth_token else None,
+            ignore_verifications=data_args.ignore_verifications,
         )
 
     if training_args.do_eval:
@@ -454,6 +488,7 @@ def main():
             split=data_args.eval_split_name,
             cache_dir=data_args.dataset_cache_dir,
             use_auth_token=True if model_args.use_auth_token else None,
+            ignore_verifications=data_args.ignore_verifications,
         )
 
     if training_args.do_predict:
@@ -465,6 +500,7 @@ def main():
                 split=split,
                 cache_dir=data_args.dataset_cache_dir,
                 use_auth_token=True if model_args.use_auth_token else None,
+                ignore_verifications=data_args.ignore_verifications,
             )
 
     if not training_args.do_train and not training_args.do_eval and not training_args.do_predict:
@@ -492,9 +528,14 @@ def main():
         )
 
     # 6. Resample speech dataset ALWAYS
-    raw_datasets = raw_datasets.cast_column(
-        data_args.audio_column_name, datasets.features.Audio(sampling_rate=config.sample_rate)
-    )
+    if data_args.torchaudio_resampler:
+        # TODO: remove hardcoding of orig sr
+        resampler = torchaudio.transforms.Resample(8_000, config.sample_rate)
+    else:
+        raw_datasets = raw_datasets.cast_column(
+            data_args.audio_column_name, datasets.features.Audio(sampling_rate=config.sample_rate)
+        )
+        resampler = None
 
     # 7. Preprocessing the datasets.
     # We need to read the audio files as arrays and tokenize the targets.
@@ -513,13 +554,14 @@ def main():
     tedlium_contractions = [" 's", " 't", " 're", " 've", " 'm", " 'll", " 'd", " 'clock", " 'all"]
     gigaspeech_punctuation = {" <comma>": ",", " <period>": ".", " <questionmark>": "?", " <exclamationpoint>": "!"}
     gigaspeech_disfluencies = ["<other>", "<sil>"]
-    swb_disfluencies = ["[noise]", "[laughter]", "[silence]", "<a_aside>", "<b_aside>", "<e_aside>", "[laughter-",
-                        "[vocalized-noise]", "_1"]
-    swb_punctuations = ["{", "}", "[", "]-", "]"]
-    earnings_disfluencies = ["<crosstalk>", "<affirmative>", "<inaudible>", "inaudible", "<laugh>"]
+    swb_disfluencies = ["[noise]", "[laughter]", "[silence]", "[vocalized-noise]", "<a_aside>", "<b_aside>", "<e_aside>",
+                        "[laughter-", "_1", "[laugh]", "[sigh]", "[cough]", "[mn]", "[breath]", "[lipsmack]",
+                        "[sneeze]", "[skip]", "[pause]", "(%hesitation)", "(%HESITATION)"]
+    swb_punctuations = ["{", "}", "[", "]-", "]", "((", "))", "(", ")"]
+    earnings_disfluencies = ["<noise>", "<crosstalk>", "<affirmative>", "<inaudible>", "inaudible", "<laugh>", "<silence>"]
     ignore_segments = ["ignore_time_segment_in_scoring", "<noise>", "<music>", "[noise]", "[laughter]", "[silence]",
-                       "[vocalized-noise]", "<crosstalk>", "<affirmative>", "<inaudible>", "<laugh>", "<other>",
-                       "<sil>", ""]
+                       "[vocalized-noise]", "<crosstalk>", "<affirmative>", "<inaudible>", "<laugh>", ""]
+    ignore_segments = ignore_segments + gigaspeech_disfluencies + swb_disfluencies + earnings_disfluencies
 
     if training_args.do_train and data_args.max_train_samples is not None:
         raw_datasets["train"] = raw_datasets["train"].select(range(data_args.max_train_samples))
@@ -551,7 +593,14 @@ def main():
             # a soundfile ValueError. For now, we'll manually set these arrays to a zero array.
             # They will be filtered in the subsequent filtering stage and so are
             # explicitly ignored during training.
-            sample = {"array": np.array([0.]), "sampling_rate": config.sampling_rate}
+            sample = {"array": np.array([0.]), "sampling_rate": config.sample_rate}
+
+        if resampler is not None:
+            speech_tensor = torch.FloatTensor(sample["array"])
+            speech_tensor = speech_tensor.squeeze()
+            speech_tensor = resampler(speech_tensor)
+            sample["array"] = speech_tensor.numpy()
+            sample["sampling_rate"] = resampler.new_freq
 
         # NeMo RNNT model performs the audio preprocessing in the `.forward()` call
         # => we only need to supply it with the raw audio values
@@ -595,20 +644,68 @@ def main():
 
         # SWB: hide the path to the private HF dataset
         if "switchboard" in dataset_name:
+            # In one conversation people speak some German phrases that are tagged as
+            # <german (( ja wohl )) > -- we remove these
+            input_str = re.sub("<[^>]*>", "", input_str)
+
+            # Remove junk tokens
             for disfluency in swb_disfluencies:
                 input_str = input_str.replace(disfluency, "")
-            # remove parenthesised text (test data only)
-            input_str = re.sub("[\(].*?[\)]", "", input_str)
-            for punctuation in swb_punctuations:
-                input_str = input_str.replace(punctuation, "")
-            # replace anomalous words with their correct transcriptions
+
+            # normalise acronyms (Fisher: u_.c_.l_.a., SWBD: u c l a)
+            input_str = input_str.replace("_.", " ")
+
+            # Replace partially pronounced words (square brackets + hyphen): westmin[ster]- to westmin- or -[go]ing to -ing
+            # Replace anomalous words (square brackets + backslack): [lemguini/linguini] to linguini
+            # Replace the combo of the two: [lem[guini]-/linguini] to lem-
+            # Example: we [ah/are] -[go]ing to westmin[ster]- for [lem[guini]-/linguini]
+            # Target: we ah -ing to westmin- for lem-
+            # Treat anomalous words first then destroy the content of all square brackets (partially pronounced words)
+
+            # First treat partially pronounced anomalous words by removing correct word: [lem[guini]-/linguini] to [lem[guini]-
+            input_str = re.sub(r"\-\/.*?\]", "-", input_str)
+
+            # Now replace anomalous words with their correct transcriptions: [lemguini/linguini] to linguini
             split_str = input_str.split("/")
             if len(split_str) > 1:
                 input_str = " ".join(
                     [" ".join([" ".join(i.split(" ")[:-1]) for i in split_str])] + [split_str[-1].split(" ")[-1]])
 
+            # Remove the trailing brackets on the start/end of words
+            processed_str = []
+            for word in input_str.split():
+                if word[0] == "[":
+                    processed_str.append(word[1:])
+                elif word[-1] == "]":
+                    processed_str.append(word[:-1])
+                else:
+                    processed_str.append(word)
+
+            # Stick the processed words back together
+            input_str = " ".join(processed_str)
+
+            # Now we can remove all words in square brackets: -[go]ing to -ing
+            input_str = re.sub(r"\-\[(.*?)\]", "-", input_str)
+
+            # westmin[ster]- to westmin-
+            input_str = re.sub(r"\[(.*?)\]\-", "-", input_str)
+
+            # tech[n]ology to tech-ology
+            input_str = re.sub(r"\[(.*?)\]", "-", input_str)
+
+            # partially pronounced words are now done!
+            # remove erroneous punctuations (curly braces, trailing square brackets, etc.)
+            for punctuation in swb_punctuations:
+                input_str = input_str.replace(punctuation, "")
+
         # Earnings 22: still figuring out best segmenting method. Thus, dataset name subject to change
         if "earnings22" in dataset_name:
+            # Remove the 100ms offset at the end of the sample
+            sampling_rate = sample["sampling_rate"]
+            offset = int(100 * (10 ** -3) * sampling_rate)
+            batch["input_ids"] = sample["array"][:-offset]
+            batch["input_lengths"] = len(batch["input_ids"])
+            # Remove  junk tokens
             for disfluency in earnings_disfluencies:
                 input_str = input_str.replace(disfluency, "")
 
@@ -653,7 +750,7 @@ def main():
         vectorized_datasets = vectorized_datasets.filter(
             is_eval_audio_in_length_range,
             num_proc=num_workers,
-            input_columns=["input_length"],
+            input_columns=["input_lengths"],
         )
 
     def is_labels_non_zero(transcription):
@@ -735,6 +832,11 @@ def main():
         model.decoder.load_state_dict(pretrained_decoder)
         model.joint.load_state_dict(pretrained_joint)
 
+    elif model_args.pretrained_model_name_or_path is not None:
+        model = RNNTBPEModel.restore_from(model_args.pretrained_model_name_or_path, override_config_path=config,
+                                             map_location="cpu")
+        model.save_name = model_args.config_path.split("/")[-1].split(".")[0]
+
     else:
         model = RNNTBPEModel(cfg=config)
         model.save_name = model_args.config_path.split("/")[-1].split(".")[0]
@@ -808,6 +910,18 @@ def main():
             # Good practice: save your training arguments together with the trained model
             torch.save(self.args, os.path.join(output_dir, "training_args.bin"))
 
+        def transcribe(self, test_dataset: Dataset) -> List[Any]:
+            self.model.eval()
+            test_dataloader = self.get_test_dataloader(test_dataset)
+            hypotheses = []
+            for test_batch in tqdm(test_dataloader, desc="Transcribing"):
+                inputs = self._prepare_inputs(test_batch)
+                best_hyp, all_hyp = self.model.transcribe(**inputs)
+                hypotheses += best_hyp
+                del test_batch
+            return hypotheses
+
+
     # Initialize Trainer
     trainer = NeMoTrainer(
         model=model,
@@ -860,24 +974,52 @@ def main():
     if training_args.do_eval:
         logger.info(f"*** Running Final Evaluation ({model_args.final_decoding_strategy}) ***")
 
-        metrics = trainer.evaluate()
+        predictions = trainer.transcribe(vectorized_datasets["eval"])
+        targets = model.tokenizer.ids_to_text(vectorized_datasets["eval"]["labels"])
+
+        cer_metric = load_metric("cer")
+        wer_metric = load_metric("wer")
+
+        cer = cer_metric.compute(predictions=predictions, references=targets)
+        wer = wer_metric.compute(predictions=predictions, references=targets)
+
+        metrics = {f"eval_cer": cer, f"eval_wer": wer}
+
         max_eval_samples = (
-            data_args.max_eval_samples if data_args.max_eval_samples is not None else len(vectorized_datasets["eval"])
+            data_args.max_eval_samples if data_args.max_eval_samples is not None else len(
+                vectorized_datasets["eval"])
         )
         metrics["eval_samples"] = min(max_eval_samples, len(vectorized_datasets["eval"]))
 
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
 
+        if "wandb" in training_args.report_to:
+            if not training_args.do_train:
+                wandb.init(name=training_args.run_name, project=data_args.wandb_project)
+            metrics = {os.path.join("eval", k[len("eval") + 1:]): v for k, v in metrics.items()}
+            # wandb.init(project=data_args.wandb_project, name=training_args.run_name)
+            wandb.log(metrics)
+            write_wandb_pred(predictions, targets, prefix="eval")
+
     if training_args.do_predict:
         logger.info(f"*** Running Final Prediction ({model_args.final_decoding_strategy}) ***")
 
         for split in test_split:
-            predict_results = trainer.predict(
-                vectorized_datasets[split], metric_key_prefix=split, )
-            metrics = predict_results.metrics
+            predictions = trainer.transcribe(vectorized_datasets[split])
+            targets = model.tokenizer.ids_to_text(vectorized_datasets[split]["labels"])
+
+            cer_metric = load_metric("cer")
+            wer_metric = load_metric("wer")
+
+            cer = cer_metric.compute(predictions=predictions, references=targets)
+            wer = wer_metric.compute(predictions=predictions, references=targets)
+
+            metrics = {f"{split}_cer": cer, f"{split}_wer": wer}
+
             max_predict_samples = (
-                data_args.max_predict_samples if data_args.max_predict_samples is not None else len(vectorized_datasets[split])
+                data_args.max_predict_samples if data_args.max_predict_samples is not None else len(
+                    vectorized_datasets[split])
             )
             metrics[f"{split}_samples"] = min(max_predict_samples, len(vectorized_datasets[split]))
 
@@ -885,28 +1027,10 @@ def main():
             trainer.save_metrics(split, metrics)
 
             if "wandb" in training_args.report_to:
-                import wandb
-                metrics = {os.path.join(split, k[len(split)+1:]): v for k, v in metrics.items()}
-                wandb.log(metrics)
-
-        # re-evaluate on the test set, this time computing the CER
-        # this is pretty wasteful to run eval twice, but very fast to implement
-        trainer.model.wer.use_cer = True
-        trainer.model.change_decoding_strategy(trainer.model.cfg.decoding)
-
-        for split in test_split:
-            predict_results = trainer.predict(
-                vectorized_datasets[split], metric_key_prefix=split, )
-            metrics = predict_results.metrics
-            # the returned metric is the CER, but under an erroneous key; we swap them here
-            metrics = {f"{split}_cer": metrics[f"{split}_wer"]}
-
-            trainer.log_metrics(split, metrics)
-            trainer.save_metrics(split, metrics)
-
-            if "wandb" in training_args.report_to:
                 metrics = {os.path.join(split, k[len(split) + 1:]): v for k, v in metrics.items()}
+                #wandb.init(project=data_args.wandb_project, name=training_args.run_name)
                 wandb.log(metrics)
+                write_wandb_pred(predictions, targets, prefix=split)
 
     # Write model card and (optionally) push to hub
     config_name = data_args.dataset_config_name if data_args.dataset_config_name is not None else "na"
