@@ -34,5 +34,4 @@ CUDA_VISIBLE_DEVICES=1 python run_speech_recognition_rnnt.py \
         --fp16 \
         --freeze_encoder \
         --do_lower_case \
-        --do_eval \
         --do_predict \

@@ -5,13 +5,13 @@ CUDA_VISIBLE_DEVICES=1 python run_speech_recognition_rnnt.py \
         --dataset_name="mozilla-foundation/common_voice_9_0" \
         --tokenizer_path="tokenizer" \
         --vocab_size="1024" \
-        --num_train_epochs="0.90" \
+        --max_steps="100000" \
         --dataset_config_name="en" \
         --train_split_name="train" \
         --eval_split_name="validation" \
         --test_split_name="test" \
         --text_column_name="sentence" \
-        --output_dir="./conformer-transducer-xl-cv9" \
+        --output_dir="./" \
         --run_name="rnnt-cv9-baseline" \
         --wandb_project="rnnt" \
         --per_device_train_batch_size="8" \
@@ -25,7 +25,7 @@ CUDA_VISIBLE_DEVICES=1 python run_speech_recognition_rnnt.py \
         --eval_steps="20000" \
         --report_to="wandb" \
         --preprocessing_num_workers="4" \
-        --fused_batch_size="8" \
+        --fused_batch_size="4" \
         --length_column_name="input_lengths" \
         --do_lower_case="False" \
         --max_eval_duration_in_seconds="20" \
@@ -35,5 +35,4 @@ CUDA_VISIBLE_DEVICES=1 python run_speech_recognition_rnnt.py \
         --do_train \
         --do_eval \
         --do_predict \
-        --push_to_hub \
         --use_auth_token
