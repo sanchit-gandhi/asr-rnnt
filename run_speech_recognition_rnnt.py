@@ -22,7 +22,6 @@ import logging
 import os
 import re
 import sys
-import time
 from dataclasses import dataclass, field
 
 import torchaudio
@@ -54,15 +53,13 @@ from transformers import (
     TrainerState,
     TrainerControl,
 )
-from transformers.trainer_pt_utils import get_parameter_names
-from transformers.trainer_utils import get_last_checkpoint, is_main_process, PredictionOutput
+from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 
 from process_asr_text_tokenizer import __process_data as nemo_process_data, \
     __build_document_from_manifests as nemo_build_document_from_manifests
 
-import bitsandbytes as bnb
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.17.0.dev0")
@@ -540,15 +537,15 @@ def main():
     # 7. Preprocessing the datasets.
     # We need to read the audio files as arrays and tokenize the targets.
     max_input_length = int(data_args.max_duration_in_seconds * config.sample_rate)
-    min_input_length = min(int(data_args.min_duration_in_seconds * config.sample_rate), 1)
+    min_input_length = max(int(data_args.min_duration_in_seconds * config.sample_rate), 1)
     max_eval_input_length = int(data_args.max_eval_duration_in_seconds * config.sample_rate) if data_args.max_eval_duration_in_seconds else None
-    max_target_length = data_args.max_target_length
-    min_target_length = data_args.min_target_length
     audio_column_name = data_args.audio_column_name
     num_workers = data_args.preprocessing_num_workers
     text_column_name = data_args.text_column_name
     do_lower_case = data_args.do_lower_case
     dataset_name = data_args.dataset_name
+    if "switchboard" in dataset_name:
+        import contractions
 
     # Define tokens to ignore/replace
     tedlium_contractions = [" 's", " 't", " 're", " 've", " 'm", " 'll", " 'd", " 'clock", " 'all"]
@@ -558,6 +555,7 @@ def main():
                         "[laughter-", "_1", "[laugh]", "[sigh]", "[cough]", "[mn]", "[breath]", "[lipsmack]",
                         "[sneeze]", "[skip]", "[pause]", "(%hesitation)", "(%HESITATION)"]
     swb_punctuations = ["{", "}", "[", "]-", "]", "((", "))", "(", ")"]
+    swb_fillers = r"\b(uh|uhm|um|hmm|mm|mhm|mmm)\b"
     earnings_disfluencies = ["<noise>", "<crosstalk>", "<affirmative>", "<inaudible>", "inaudible", "<laugh>", "<silence>"]
     ignore_segments = ["ignore_time_segment_in_scoring", "<noise>", "<music>", "[noise]", "[laughter]", "[silence]",
                        "[vocalized-noise]", "<crosstalk>", "<affirmative>", "<inaudible>", "<laugh>", ""]
@@ -647,14 +645,13 @@ def main():
             # In one conversation people speak some German phrases that are tagged as
             # <german (( ja wohl )) > -- we remove these
             input_str = re.sub("<[^>]*>", "", input_str)
-
+            input_str = contractions.fix(input_str)
             # Remove junk tokens
             for disfluency in swb_disfluencies:
                 input_str = input_str.replace(disfluency, "")
 
             # normalise acronyms (Fisher: u_.c_.l_.a., SWBD: u c l a)
-            input_str = input_str.replace("_.", " ")
-
+            input_str = input_str.replace("_.", " ").replace(".", "")
             # Replace partially pronounced words (square brackets + hyphen): westmin[ster]- to westmin- or -[go]ing to -ing
             # Replace anomalous words (square brackets + backslack): [lemguini/linguini] to linguini
             # Replace the combo of the two: [lem[guini]-/linguini] to lem-
@@ -697,6 +694,31 @@ def main():
             # remove erroneous punctuations (curly braces, trailing square brackets, etc.)
             for punctuation in swb_punctuations:
                 input_str = input_str.replace(punctuation, "")
+            input_str = re.sub(swb_fillers, "", input_str)
+
+            split = input_str.split()
+            new_string = []
+            comb = ""
+            has_split = False
+            for i in range(len(split) - 1):
+                if len(split[i + 1]) == 1 and len(split[i]) == 1:
+                    if split[i] != split[i + 1]:
+                        if comb == "":
+                            comb += split[i]
+                        comb += split[i + 1]
+                        has_split = True
+                else:
+                    if len(comb):
+                        new_string.append(comb)
+                        comb = ""
+                        has_split = False
+                    new_string.append(split[i])
+            if has_split:
+                new_string.append(comb)
+            else:
+                new_string.append(split[-1])
+
+            input_str = " ".join(new_string)
 
         # Earnings 22: still figuring out best segmenting method. Thus, dataset name subject to change
         if "earnings22" in dataset_name:
@@ -722,21 +744,21 @@ def main():
         # We can't currently tokenize the dataset... we need the pre-processed text data in order to
         # build our SPE tokenizer. Once we've defined our tokenizer, we can come back and
         # tokenize the text. For now, just return the pre-processed text data
-        batch[text_column_name] = input_str
+        batch["processed_text"] = input_str
         return batch
 
     vectorized_datasets = raw_datasets.map(
         prepare_dataset,
+        remove_columns=next(iter(raw_datasets.values())).column_names,
         num_proc=num_workers,
         desc="preprocess train dataset",
     )
 
     # filter training data with inputs shorter than min_input_length or longer than max_input_length
     def is_audio_in_length_range(length):
-        return length > min_input_length and length < max_input_length
+        return min_input_length < length < max_input_length
 
-    if training_args.do_train:
-        vectorized_datasets["train"] = vectorized_datasets["train"].filter(
+    vectorized_datasets = vectorized_datasets.filter(
             is_audio_in_length_range,
             num_proc=num_workers,
             input_columns=["input_lengths"],
@@ -759,7 +781,7 @@ def main():
     vectorized_datasets = vectorized_datasets.filter(
         is_labels_non_zero,
         num_proc=num_workers,
-        input_columns=[text_column_name],
+        input_columns=["processed_text"],
     )
 
     # for large datasets it is advised to run the preprocessing on a
@@ -776,7 +798,7 @@ def main():
     # TODO: with a bit of hacking around we can probably bypass this step entirely
     def build_manifest(ds, manifest_path):
         with open(manifest_path, 'w') as fout:
-            for sample in tqdm(ds[text_column_name]):
+            for sample in tqdm(ds["processed_text"]):
                 # Write the metadata to the manifest
                 metadata = {
                     "text": sample
@@ -878,12 +900,11 @@ def main():
     tokenizer = model.tokenizer.tokenizer.encode_as_ids
 
     def tokenize_transcripts(batch):
-        batch["labels"] = tokenizer(batch[text_column_name])
+        batch["labels"] = tokenizer(batch["processed_text"])
         return batch
 
     vectorized_datasets = vectorized_datasets.map(tokenize_transcripts, num_proc=num_workers,
-                                                  desc="Tokenizing datasets...",
-                                                  remove_columns=next(iter(raw_datasets.values())).column_names)
+                                                  desc="Tokenizing datasets...",)
 
     def compute_metrics(pred):
         # Tuple of WERs returned by the model during eval: (wer, wer_num, wer_denom)
@@ -1028,7 +1049,6 @@ def main():
 
             if "wandb" in training_args.report_to:
                 metrics = {os.path.join(split, k[len(split) + 1:]): v for k, v in metrics.items()}
-                #wandb.init(project=data_args.wandb_project, name=training_args.run_name)
                 wandb.log(metrics)
                 write_wandb_pred(predictions, targets, prefix=split)
 

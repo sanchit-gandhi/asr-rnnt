@@ -77,7 +77,10 @@ class RNNTBPEModel(EncDecRNNTBPEModel):
 
     def forward(self, input_ids, input_lengths=None, labels=None, label_lengths=None):
         # encoding() only performs encoder forward
-        encoded, encoded_len = self.encoding(input_signal=input_ids, input_signal_length=input_lengths)
+        try:
+            encoded, encoded_len = self.encoding(input_signal=input_ids, input_signal_length=input_lengths)
+        except ValueError:
+            import ipdb; ipdb.set_trace()
         del input_ids
 
         # During training, loss must be computed, so decoder forward is necessary
