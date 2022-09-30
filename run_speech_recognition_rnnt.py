@@ -693,7 +693,7 @@ def main():
             for punctuation in swb_punctuations:
                 input_str = input_str.replace(punctuation, "")
 
-            # Remove fillers
+            # Remove fillers from the train set not present in the test set
             input_str = re.sub(swb_fillers, "", input_str)
 
         # Earnings 22: still figuring out best segmenting method. Thus, dataset name subject to change
