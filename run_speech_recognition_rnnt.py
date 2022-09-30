@@ -544,8 +544,6 @@ def main():
     text_column_name = data_args.text_column_name
     do_lower_case = data_args.do_lower_case
     dataset_name = data_args.dataset_name
-    if "switchboard" in dataset_name:
-        import contractions
 
     # Define tokens to ignore/replace
     tedlium_contractions = [" 's", " 't", " 're", " 've", " 'm", " 'll", " 'd", " 'clock", " 'all"]
@@ -645,7 +643,7 @@ def main():
             # In one conversation people speak some German phrases that are tagged as
             # <german (( ja wohl )) > -- we remove these
             input_str = re.sub("<[^>]*>", "", input_str)
-            input_str = contractions.fix(input_str)
+
             # Remove junk tokens
             for disfluency in swb_disfluencies:
                 input_str = input_str.replace(disfluency, "")
@@ -694,31 +692,8 @@ def main():
             # remove erroneous punctuations (curly braces, trailing square brackets, etc.)
             for punctuation in swb_punctuations:
                 input_str = input_str.replace(punctuation, "")
+
             input_str = re.sub(swb_fillers, "", input_str)
-
-            split = input_str.split()
-            new_string = []
-            comb = ""
-            has_split = False
-            for i in range(len(split) - 1):
-                if len(split[i + 1]) == 1 and len(split[i]) == 1:
-                    if split[i] != split[i + 1]:
-                        if comb == "":
-                            comb += split[i]
-                        comb += split[i + 1]
-                        has_split = True
-                else:
-                    if len(comb):
-                        new_string.append(comb)
-                        comb = ""
-                        has_split = False
-                    new_string.append(split[i])
-            if has_split:
-                new_string.append(comb)
-            else:
-                new_string.append(split[-1])
-
-            input_str = " ".join(new_string)
 
         # Earnings 22: still figuring out best segmenting method. Thus, dataset name subject to change
         if "earnings22" in dataset_name:
